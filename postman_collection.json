@@ -1,21 +1,34 @@
-
-
-
-## 2️⃣ Postman Collection (JSON)
-
-Save this as `Vapi-Dashboard.postman_collection.json` and import into Postman.
-
-```json
 {
   "info": {
-    "name": "VAPI Inbound Dashboard",
-    "_postman_id": "11111111-2222-3333-4444-555555555555",
-    "description": "Postman collection for the VAPI inbound call monitoring dashboard (FastAPI backend).",
+    "name": "VAPI Inbound Call Dashboard",
+    "_postman_id": "6a7c2b71-0a0e-4a30-9d0d-6b8d2c9b0001",
+    "description": "FastAPI backend for the inbound call dashboard. Includes health, calls, force-transfer, webhooks, and debug utilities.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "client_id", "value": "demo-client" },
+    { "key": "call_id", "value": "call-xyz-1" }
+  ],
   "item": [
     {
-      "name": "Get Calls (by client)",
+      "name": "Health - Root",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] }
+      }
+    },
+    {
+      "name": "Health - /health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "Calls - List by Client",
       "request": {
         "method": "GET",
         "header": [],
@@ -27,18 +40,77 @@ Save this as `Vapi-Dashboard.postman_collection.json` and import into Postman.
       }
     },
     {
+      "name": "Calls - Force Transfer",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_phone_number\": \"+16504848853\",\n  \"content\": \"Transferring your call now\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/{{client_id}}/calls/{{call_id}}/force-transfer",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "{{client_id}}", "calls", "{{call_id}}", "force-transfer"]
+        }
+      }
+    },
+    {
+      "name": "Webhook - status-update",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": {\n    \"type\": \"status-update\",\n    \"status\": \"in-progress\",\n    \"call\": {\n      \"id\": \"{{call_id}}\",\n      \"phoneNumber\": \"+18005550123\",\n      \"listenUrl\": \"wss://example.com/listen/{{call_id}}\",\n      \"controlUrl\": \"https://example.com/control/{{call_id}}\"\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhooks", "vapi", "{{client_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Webhook - transcript",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": {\n    \"type\": \"transcript\",\n    \"transcript\": \"Customer: I have a billing question\",\n    \"call\": { \"id\": \"{{call_id}}\" }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhooks", "vapi", "{{client_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Webhook - end-of-call-report",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": {\n    \"type\": \"end-of-call-report\",\n    \"endedReason\": \"customer_hangup\",\n    \"call\": { \"id\": \"{{call_id}}\" },\n    \"artifact\": {\n      \"recording\": { \"url\": \"https://example.com/recordings/{{call_id}}.mp3\" },\n      \"transcript\": \"Full transcript text...\",\n      \"messages\": [ { \"role\": \"user\", \"content\": \"...\" } ]\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhooks", "vapi", "{{client_id}}"]
+        }
+      }
+    },
+    {
       "name": "Debug - Create/Update Test Call",
       "request": {
         "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"call_id\": \"call-xyz-1\",\n  \"phone_number\": \"+18885550111\",\n  \"status\": \"ringing\",\n  \"event_payload\": {\n    \"source\": \"postman\"\n  }\n}"
+          "raw": "{\n  \"call_id\": \"{{call_id}}\",\n  \"phone_number\": \"+18885550111\",\n  \"status\": \"ringing\",\n  \"event_payload\": { \"source\": \"postman\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/debug/create-test-call/{{client_id}}",
@@ -51,15 +123,10 @@ Save this as `Vapi-Dashboard.postman_collection.json` and import into Postman.
       "name": "Debug - Log Status Event",
       "request": {
         "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"status\": \"in-progress\",\n  \"payload\": {\n    \"note\": \"manual event from Postman\"\n  }\n}"
+          "raw": "{\n  \"status\": \"in-progress\",\n  \"payload\": { \"note\": \"manual event from Postman\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/debug/log-status-event/{{client_id}}/{{call_id}}",
@@ -79,20 +146,6 @@ Save this as `Vapi-Dashboard.postman_collection.json` and import into Postman.
           "path": ["api", "debug", "status-events", "{{client_id}}", "{{call_id}}"]
         }
       }
-    }
-  ],
-  "variable": [
-    {
-      "key": "baseUrl",
-      "value": "http://localhost:8000"
-    },
-    {
-      "key": "client_id",
-      "value": "demo-client"
-    },
-    {
-      "key": "call_id",
-      "value": "call-xyz-1"
     }
   ]
 }

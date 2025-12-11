@@ -3,12 +3,12 @@
 Real-time monitoring for AI voice agents powered by VAPI.ai. The FastAPI backend ingests VAPI webhooks, persists call state in SQLite via SQLModel, and broadcasts updates over WebSockets. The React + Vite frontend renders a live dashboard with listen-in audio, transcript viewing, and force-transfer controls.
 
 ## Repository Map
-- backend/ ï¿½ FastAPI app, SQLModel models, SQLite db (api_dashboard.db), WebSocket manager
-- frontend/ ï¿½ React + Vite + Tailwind (v4) dashboard UI
-- api_docs.md ï¿½ Existing HTTP/WebSocket reference
-- architecture-diagrams.md ï¿½ Original Mermaid diagrams
-- postman_collection.json ï¿½ Sample requests
-- readme.md, copilot-instructions.md ï¿½ Prior documentation
+- backend/ – FastAPI app, SQLModel models, SQLite db (api_dashboard.db), WebSocket manager
+- frontend/ – React + Vite + Tailwind (v4) dashboard UI
+- api_docs.md – Existing HTTP/WebSocket reference
+- architecture-diagrams.md – Original Mermaid diagrams
+- postman_collection.json – Sample requests
+- readme.md, copilot-instructions.md – Prior documentation
 
 ## Quickstart
 Prereqs: Python 3.11+ (tested with 3.13), Node 20+, npm, SQLite (built-in).
@@ -30,7 +30,7 @@ Frontend
 5) Open the printed dev URL (e.g., http://localhost:5173).
 
 ## Environment
-- Frontend: VITE_BACKEND_URL ï¿½ base URL for backend HTTP + WS.
+- Frontend: VITE_BACKEND_URL – base URL for backend HTTP + WS.
 - Backend DB: configured in backend/db.py (sqlite:///./vapi_dashboard.db). Change there if you want Postgres.
 
 ## Data Model (SQLModel)
@@ -52,18 +52,18 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
     - transcript: append transcript text to Call.live_transcript; insert CallStatusEvent; broadcast transcript-update with append + fullTranscript.
     - end-of-call-report: mark status="ended", set ended_at, final_transcript (artifact.transcript), recording_url (artifact.recording), summary (endedReason + messages); insert CallStatusEvent; broadcast call-upsert including finalTranscript/liveTranscript/recordingUrl flags.
     - anything else: logs as generic CallStatusEvent; no broadcast.
-- GET /api/{client_id}/calls ï¿½ list calls ordered by created_at desc (used to bootstrap UI).
+- GET /api/{client_id}/calls – list calls ordered by created_at desc (used to bootstrap UI).
 - POST /api/{client_id}/calls/{call_id}/force-transfer
   - Body: { "agent_phone_number": "+1...", "content": "optional message" }
   - Looks up Call.control_url; POSTs {type:"transfer",destination:{type:"number",number:<agent>},content:<content>} to that URL via httpx.
   - Inserts CallStatusEvent(status="force-transfer", payload agent_phone_number/content).
 - Debug helpers
-  - POST /api/debug/create-test-call/{client_id} ï¿½ upsert Call with optional call_id/phone_number/status/event_payload, log CallStatusEvent, broadcast call-upsert.
-  - POST /api/debug/log-status-event/{client_id}/{call_id} ï¿½ insert CallStatusEvent(status/payload).
-  - GET /api/debug/status-events/{client_id}/{call_id} ï¿½ list events for a call.
+  - POST /api/debug/create-test-call/{client_id} – upsert Call with optional call_id/phone_number/status/event_payload, log CallStatusEvent, broadcast call-upsert.
+  - POST /api/debug/log-status-event/{client_id}/{call_id} – insert CallStatusEvent(status/payload).
+  - GET /api/debug/status-events/{client_id}/{call_id} – list events for a call.
 
 ### WebSockets
-- /ws/dashboard ï¿½ registers dashboard clients. Server sends an initial hello. Broadcasts two message shapes:
+- /ws/dashboard – registers dashboard clients. Server sends an initial hello. Broadcasts two message shapes:
   - call-upsert
     `json
     {
@@ -95,7 +95,7 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
       "fullTranscript": "all lines so far"
     }
     `
-- /ws/fake-audio ï¿½ test endpoint; after a hello text frame it streams random 1280-byte binary chunks for ~10 seconds for frontend audio testing.
+- /ws/fake-audio – test endpoint; after a hello text frame it streams random 1280-byte binary chunks for ~10 seconds for frontend audio testing.
 
 ## Frontend Overview (frontend/src)
 - App.tsx mounts CallDashboard.

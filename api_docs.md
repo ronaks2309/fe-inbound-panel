@@ -1,75 +1,22 @@
-# 📚 API Documentation – VAPI Inbound Call Dashboard
+# API Documentation — VAPI Inbound Call Dashboard
 
-Base URL (local):
+Base URL (local): `http://localhost:8000`  
+Auth: none (development). Add auth + tenant isolation + tighter CORS for production.
 
-- `http://localhost:8000`
+## Multi-Tenancy
+`client_id` is always a path parameter (example: `demo-client`). `CallStatusEvent.client_id` is required by the backend.
 
----
+## Health
+- `GET /` → `{"message": "Vapi dashboard backend is running"}`
+- `GET /health` → `{"status": "ok"}`
 
-## 🔐 Multi-Tenancy
+## REST + Webhook Endpoints
 
-Most endpoints are **scoped by client** via the `client_id` path parameter.
-
-Example:
-
-- `demo-client`
-- `acme-agency`
-- `senior-life`
-
----
-
-## 🔁 WebSocket – Dashboard Updates
-
-### `GET /ws/dashboard` (WebSocket)
-
-Real-time updates for calls.
-
-- **Protocol:** WebSocket
-- **URL (local):** `ws://localhost:8000/ws/dashboard`
-
-#### Messages sent from server → client
-
-Currently one main type:
-
+### List Calls
+- `GET /api/{client_id}/calls`
+- Returns calls ordered by `created_at` descending (used by the dashboard bootstrap).
+- Response (example):
 ```json
-{
-  "type": "call-upsert",
-  "clientId": "demo-client",
-  "call": {
-    "id": "abc123",
-    "status": "in-progress",
-    "phoneNumber": "+18005550000",
-    "startedAt": "2025-12-10T07:05:14.195889",
-    "endedAt": null,
-    "listenUrl": null
-  }
-}
-```
-
-Client behavior:
-
-If call.id is new → insert row.
-
-If call.id exists → update row in-place.
-
-Avoid duplicates.
-
-📞 Calls API
-GET /api/{client_id}/calls
-
-Fetch list of calls for a given client (used to bootstrap the dashboard UI).
-
-Method: GET
-
-Path: /api/{client_id}/calls
-
-Auth: None (for now)
-
-Params:
-
-client_id (path) – string
-
-Response: 200 OK
 [
   {
     "id": "debug-1765332952",
@@ -78,140 +25,91 @@ Response: 200 OK
     "status": "in-progress",
     "started_at": "2025-12-10T07:05:14.195889",
     "ended_at": null,
-    "created_at": "2025-12-10T07:05:14.195889",
-    "updated_at": "2025-12-10T07:05:14.195889",
-    "listen_url": null
+    "listen_url": null,
+    "control_url": null,
+    "live_transcript": null,
+    "final_transcript": null,
+    "recording_url": null
   }
 ]
+```
 
-🧪 Debug APIs (for local testing)
-
-These simulate VAPI behavior so the dashboard can be tested without real traffic.
-
-1. POST /api/debug/create-test-call/{client_id}
-
-Create or update a fake call and broadcast to dashboards.
-
-Method: POST
-
-Path: /api/debug/create-test-call/{client_id}
-
-Auth: None
-
-Params:
-
-client_id (path) – string
-
-Request body (JSON)
+### Force Transfer a Live Call
+- `POST /api/{client_id}/calls/{call_id}/force-transfer`
+- Body:
+```json
 {
-  "call_id": "optional-call-id",
-  "phone_number": "+18885550111",
-  "status": "in-progress",
-  "event_payload": {
-    "note": "optional debug info"
-  }
+  "agent_phone_number": "+16504848853",
+  "content": "Transferring your call now"
 }
+```
+- Requires the Call to have a `control_url`; otherwise returns `400`. Returns `404` if the call does not exist for the client. On success, posts a Vapi transfer payload to `control_url` and logs `CallStatusEvent(status="force-transfer")`.
 
+### Vapi Webhook Ingest
+- `POST /webhooks/vapi/{client_id}`
+- Switches on `message.type` (case-insensitive):
+  - `status-update`: upsert Call (id, phoneNumber/from, listenUrl, controlUrl, status, started/ended), insert `CallStatusEvent`, broadcast `call-upsert`.
+  - `transcript`: append to `Call.live_transcript`, insert `CallStatusEvent`, broadcast `transcript-update` with `append` + `fullTranscript`.
+  - `end-of-call-report`: set `status="ended"`, `ended_at`, `final_transcript` (artifact.transcript), `recording_url` (artifact.recording url fields), `summary` (messages + endedReason); insert `CallStatusEvent`; broadcast `call-upsert`.
+  - any other value: log generic `CallStatusEvent` (no broadcast).
+- Required field: `message.call.id`. Optional fields read from `message.call`: `phoneNumber|from`, `listenUrl|listen_url`, `controlUrl|control_url`.
 
-Fields:
+### Debug Helpers
+- `POST /api/debug/create-test-call/{client_id}`  
+  Body (optional): `call_id`, `phone_number`, `status`, `event_payload`. Upserts Call, inserts `CallStatusEvent`, broadcasts `call-upsert`.
+- `POST /api/debug/log-status-event/{client_id}/{call_id}`  
+  Body: `status` (default `"in-progress"`), optional `payload`. Inserts `CallStatusEvent`.
+- `GET /api/debug/status-events/{client_id}/{call_id}`  
+  Lists events ordered by `created_at` ascending.
 
-call_id (optional) – if supplied, upserts this call; if omitted/empty → auto-generates debug-{timestamp}
+## WebSockets
 
-phone_number (optional) – defaults to +15555550123
+### Dashboard Updates
+- `GET /ws/dashboard` (WebSocket)
+- On connect: sends `{"type": "hello", "message": "Dashboard WebSocket connected"}`.
+- Broadcast messages:
+  - `call-upsert`
+    ```json
+    {
+      "type": "call-upsert",
+      "clientId": "demo-client",
+      "call": {
+        "id": "abc123",
+        "status": "in-progress",
+        "phoneNumber": "+18005550000",
+        "startedAt": "2025-12-10T07:05:14.195889",
+        "endedAt": null,
+        "listenUrl": "wss://...",
+        "hasTranscript": true,
+        "hasLiveTranscript": false,
+        "hasRecording": true,
+        "finalTranscript": "optional",
+        "liveTranscript": "optional",
+        "recordingUrl": "optional"
+      }
+    }
+    ```
+  - `transcript-update`
+    ```json
+    {
+      "type": "transcript-update",
+      "clientId": "demo-client",
+      "callId": "abc123",
+      "append": "new line",
+      "fullTranscript": "complete text so far"
+    }
+    ```
 
-status (optional) – defaults to "in-progress"
+### Fake Audio Stream (for testing ListenModal)
+- `GET /ws/fake-audio` (WebSocket)
+- Sends a hello text frame, then ~10 seconds of random 1280-byte binary chunks (pretend PCM 16-bit mono at 32000 Hz), then closes.
 
-event_payload (optional) – arbitrary JSON stored with CallStatusEvent
+## Data Model (SQLModel)
+- Client: `id`, `name`, `created_at`
+- Call: `id`, `client_id`, `phone_number`, `status`, `started_at`, `ended_at`, `listen_url`, `control_url`, `live_transcript`, `final_transcript`, `recording_url`, `summary` (JSON), `created_at`, `updated_at`
+- CallStatusEvent: `id`, `call_id`, `client_id`, `status`, `payload` (JSON), `created_at`
 
-Behavior
-
-Resolve call_id (either from body or generated).
-
-If call exists:
-
-Update status, phone_number, updated_at.
-
-Else:
-
-Insert new Call.
-
-Insert new CallStatusEvent row for this status.
-
-Broadcast call-upsert to all connected dashboards.
-
-Response: 200 OK
-{
-  "ok": true,
-  "call_id": "call-xyz-1",
-  "updated": false,
-  "status_event_id": 12
-}
-
-2. POST /api/debug/log-status-event/{client_id}/{call_id}
-
-Manually log a CallStatusEvent entry for testing.
-
-Method: POST
-
-Path: /api/debug/log-status-event/{client_id}/{call_id}
-
-Request body (JSON)
-{
-  "status": "in-progress",
-  "payload": {
-    "source": "debug"
-  }
-}
-
-Response: 200 OK
-{
-  "ok": true,
-  "event_id": 42
-}
-
-3. GET /api/debug/status-events/{client_id}/{call_id}
-
-Retrieve chronological status events for a call.
-
-Method: GET
-
-Path: /api/debug/status-events/{client_id}/{call_id}
-
-Response: 200 OK
-[
-  {
-    "id": 40,
-    "call_id": "call-xyz-1",
-    "client_id": "demo-client",
-    "status": "ringing",
-    "created_at": "2025-12-10T07:30:00.123456",
-    "payload": { "source": "initial" }
-  },
-  {
-    "id": 41,
-    "call_id": "call-xyz-1",
-    "client_id": "demo-client",
-    "status": "in-progress",
-    "created_at": "2025-12-10T07:30:05.654321",
-    "payload": { "source": "connected" }
-  }
-]
-
-📡 (Planned) VAPI Webhook
-POST /webhooks/vapi/{client_id} (planned)
-
-Receives real VAPI status webhooks.
-
-Extracts:
-
-call.id
-
-status
-
-listenUrl
-
-controlUrl
-
-Upserts Call, logs CallStatusEvent, broadcasts call-upsert.
-
-Exact payload structure to be finalized based on VAPI docs / your config.
+## Notes and Constraints
+- `client_id` must always be provided; `CallStatusEvent.client_id` is NOT NULL.
+- Force transfer requires `control_url` on the Call; otherwise the backend responds with `400`.
+- Security and rate limiting are not implemented; add both before production.
