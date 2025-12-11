@@ -80,6 +80,9 @@ async def vapi_server_webhook(
     elif msg_type == "transcript":
         return await _handle_transcript_update(client_id, message, payload, session)
 
+    elif msg_type == "assistant.started":
+        return await _handle_assistant_started(client_id, message, payload, session)
+
     elif msg_type in {"end-of-call-report"}:
         return await _handle_end_of_call_report(client_id, message, payload, session)
 
@@ -430,15 +433,35 @@ async def _handle_status_update(
 ):
     status = message.get("status")
     call_data = message.get("call", {})
-
     call_id = call_data.get("id")
     if not call_id:
         print("[VAPI][status-update] Missing call.id, ignoring.")
         return {"ok": False, "error": "missing call.id"}
 
-    phone_number = call_data.get("phoneNumber") or call_data.get("from")
-    listen_url = call_data.get("listenUrl") or call_data.get("listen_url")
-    control_url = call_data.get("controlUrl") or call_data.get("control_url")
+    # Prefer customer.number when present
+    customer = message.get("customer", {}) or {}
+    phone_number = (
+        customer.get("number")
+        or call_data.get("phoneNumber")
+        or call_data.get("from")
+    )
+
+    # Monitor object may contain listen/control URLs
+    monitor = call_data.get("monitor") or {}
+    listen_url = (
+        monitor.get("listenURL")
+        or monitor.get("listenUrl")
+        or monitor.get("listen_url")
+        or call_data.get("listenUrl")
+        or call_data.get("listen_url")
+    )
+    control_url = (
+        monitor.get("controlURL")
+        or monitor.get("controlUrl")
+        or monitor.get("control_url")
+        or call_data.get("controlUrl")
+        or call_data.get("control_url")
+    )
 
     call, is_update = _get_or_create_call(
         session,
@@ -497,6 +520,109 @@ async def _handle_status_update(
     }
 
 
+
+# Handler for assistant-started messages
+async def _handle_assistant_started(
+    client_id: str,
+    message: dict,
+    full_payload: dict,
+    session: Session,
+):
+    """
+    Handle VAPI 'assistant-started' events.
+
+    Expected useful fields (various casing handled):
+    - message.call.id
+    - message.call.monitor.listenURL / listenUrl / listen_url
+    - message.call.monitor.controlURL / controlUrl / control_url
+    - message.call.status
+    - message.customer.number
+    """
+    call_data = message.get("call", {}) or {}
+    call_id = call_data.get("id")
+    if not call_id:
+        print("[VAPI][assistant-started] Missing call.id, ignoring.")
+        return {"ok": False, "error": "missing call.id"}
+
+    # customer phone number may be in message.customer.number
+    customer = message.get("customer", {}) or {}
+    phone_number = (
+        customer.get("number")
+        or call_data.get("phoneNumber")
+        or call_data.get("from")
+    )
+
+    # Monitor object may contain listen/control URLs
+    monitor = call_data.get("monitor") or {}
+    listen_url = (
+        monitor.get("listenURL")
+        or monitor.get("listenUrl")
+        or monitor.get("listen_url")
+        or call_data.get("listenUrl")
+        or call_data.get("listen_url")
+    )
+    control_url = (
+        monitor.get("controlURL")
+        or monitor.get("controlUrl")
+        or monitor.get("control_url")
+        or call_data.get("controlUrl")
+        or call_data.get("control_url")
+    )
+
+    status = call_data.get("status") or message.get("status") or "assistant-started"
+
+    call, is_update = _get_or_create_call(
+        session,
+        client_id,
+        call_id,
+        phone_number=phone_number,
+        listen_url=listen_url,
+        control_url=control_url,
+    )
+
+    if status:
+        call.status = status
+
+    call.updated_at = datetime.utcnow()
+
+    # Log event in CallStatusEvent table
+    status_event = CallStatusEvent(
+        call_id=call.id,
+        client_id=client_id,
+        status="assistant-started",
+        payload=full_payload,
+    )
+    session.add(status_event)
+    session.commit()
+    session.refresh(call)
+    session.refresh(status_event)
+
+    # Broadcast updated call snapshot so UI can react
+    await manager.broadcast_dashboard({
+        "type": "call-upsert",
+        "clientId": client_id,
+        "call": {
+            "id": call.id,
+            "status": call.status,
+            "phoneNumber": call.phone_number,
+            "startedAt": call.started_at.isoformat() if call.started_at else None,
+            "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+            "listenUrl": call.listen_url,
+            "hasTranscript": bool(call.final_transcript),
+            "hasLiveTranscript": bool(call.live_transcript),
+            "hasRecording": bool(call.recording_url),
+        }
+    })
+
+    return {
+        "ok": True,
+        "type": "assistant-started",
+        "call_id": call.id,
+        "updated": is_update,
+        "status_event_id": status_event.id,
+    }
+
+
 # Handler for transcript messages
 """
 Goal:
@@ -516,11 +642,18 @@ async def _handle_transcript_update(
         print("[VAPI][transcript] Missing call.id, ignoring.")
         return {"ok": False, "error": "missing call.id"}
 
-    transcript_text = (
+    raw_text = (
         message.get("transcript")
         or message.get("finalTranscript")
         or message.get("text")
     )
+
+    role = (message.get("role") or "").lower()
+    prefix = ""
+    if role == "assistant":
+        prefix = "AI: "
+    elif role == "user":
+        prefix = "User: "
 
     phone_number = call_data.get("phoneNumber") or call_data.get("from")
     listen_url = call_data.get("listenUrl") or call_data.get("listen_url")
@@ -535,12 +668,35 @@ async def _handle_transcript_update(
         control_url=control_url,
     )
 
-    # Append to live_transcript
-    if transcript_text:
+    # Build transcript_text to broadcast; but when consecutive fragments from
+    # the same role arrive, append to the last line without adding prefix
+    transcript_text = None
+    if raw_text:
+        # If there's existing live_transcript, inspect last line to determine role
         if call.live_transcript:
-            call.live_transcript = (call.live_transcript + "\n" + transcript_text).strip()
+            lines = call.live_transcript.splitlines()
+            last_line = lines[-1] if lines else ""
+            last_role = None
+            if last_line.startswith("AI: "):
+                last_role = "assistant"
+            elif last_line.startswith("User: "):
+                last_role = "user"
+
+            if last_role == role:
+                # Same role as last line: append directly without prefix or newline
+                append_chunk = raw_text
+                call.live_transcript = call.live_transcript + append_chunk
+                transcript_text = append_chunk
+            else:
+                # Different role: start a new line with prefix
+                append_chunk = (prefix + raw_text).strip()
+                call.live_transcript = call.live_transcript + "\n" + append_chunk
+                transcript_text = append_chunk
         else:
-            call.live_transcript = transcript_text.strip()
+            # No existing transcript: start with prefixed text
+            append_chunk = (prefix + raw_text).strip()
+            call.live_transcript = append_chunk
+            transcript_text = append_chunk
 
     call.updated_at = datetime.utcnow()
 
