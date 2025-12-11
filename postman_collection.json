@@ -1,0 +1,98 @@
+
+
+
+## 2️⃣ Postman Collection (JSON)
+
+Save this as `Vapi-Dashboard.postman_collection.json` and import into Postman.
+
+```json
+{
+  "info": {
+    "name": "VAPI Inbound Dashboard",
+    "_postman_id": "11111111-2222-3333-4444-555555555555",
+    "description": "Postman collection for the VAPI inbound call monitoring dashboard (FastAPI backend).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Calls (by client)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/{{client_id}}/calls",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "{{client_id}}", "calls"]
+        }
+      }
+    },
+    {
+      "name": "Debug - Create/Update Test Call",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"call_id\": \"call-xyz-1\",\n  \"phone_number\": \"+18885550111\",\n  \"status\": \"ringing\",\n  \"event_payload\": {\n    \"source\": \"postman\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/debug/create-test-call/{{client_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "debug", "create-test-call", "{{client_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Debug - Log Status Event",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"in-progress\",\n  \"payload\": {\n    \"note\": \"manual event from Postman\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/debug/log-status-event/{{client_id}}/{{call_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "debug", "log-status-event", "{{client_id}}", "{{call_id}}"]
+        }
+      }
+    },
+    {
+      "name": "Debug - Get Status Events",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/debug/status-events/{{client_id}}/{{call_id}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "debug", "status-events", "{{client_id}}", "{{call_id}}"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "client_id",
+      "value": "demo-client"
+    },
+    {
+      "key": "call_id",
+      "value": "call-xyz-1"
+    }
+  ]
+}
