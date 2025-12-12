@@ -368,7 +368,7 @@ const CallDashboard: React.FC = () => {
         <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">
-              Vapi Live Dashboard
+              Live Monitoring
             </h1>
             <p className="text-sm text-slate-500">
               Client: <span className="font-mono">demo-client</span>
