@@ -19,6 +19,8 @@ export type Call = {
   // NEW: transcript fields
   live_transcript?: string | null;   // incremental transcript (for active calls)
   final_transcript?: string | null;  // final transcript from end-of-call-report
+  summary?: { summary: string } | null;
+  detailsLoaded?: boolean; // flag to indicate if heavy fields are loaded
 };
 
 
@@ -58,16 +60,19 @@ const CallDashboard: React.FC = () => {
           status: c.status ?? null,
           started_at: c.started_at ?? c.startedAt ?? null,
           ended_at: c.ended_at ?? c.endedAt ?? null,
-          has_listen_url: c.hasListenUrl ?? Boolean(c.listen_url) ?? false,
-          hasTranscript:
-            c.hasTranscript ?? Boolean(c.final_transcript),
-          hasLiveTranscript:
-            c.hasLiveTranscript ?? Boolean(c.live_transcript),
-          hasRecording:
-            c.hasRecording ?? Boolean(c.recording_url),
+          has_listen_url: c.hasListenUrl ?? false,
+
+          hasTranscript: c.hasTranscript ?? false, // Normalized from backend
+          hasLiveTranscript: !!c.live_transcript, // will be missing initially
+          hasRecording: !!c.recording_url,
+
           recording_url: c.recording_url ?? c.recordingUrl ?? null,
+
           live_transcript: c.live_transcript ?? null,
           final_transcript: c.final_transcript ?? null,
+
+          // If we loaded from list, details are NOT loaded yet
+          detailsLoaded: false
         }));
 
         setCalls(normalized);
@@ -472,7 +477,7 @@ const CallDashboard: React.FC = () => {
                 </table>
               </div>
             )}
-            x
+
 
           </div>
         </div>
@@ -483,6 +488,9 @@ const CallDashboard: React.FC = () => {
         <TranscriptModal
           call={calls.find((c) => c.id === transcriptModalCallId) || null}
           onClose={() => setTranscriptModalCallId(null)}
+          onCallUpdated={(updatedCall) => {
+            setCalls(prev => prev.map(c => c.id === updatedCall.id ? updatedCall : c));
+          }}
         />
       )}
 
@@ -512,9 +520,45 @@ const CallDashboard: React.FC = () => {
 type TranscriptModalProps = {
   call: Call | null;
   onClose: () => void;
+  onCallUpdated: (call: Call) => void;
 };
 
-const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose }) => {
+const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose, onCallUpdated }) => {
+  const [fetching, setFetching] = useState(false);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!call) return;
+    if (call.detailsLoaded) return;
+    if (fetchedRef.current) return;
+
+    // Fetch full details
+    fetchedRef.current = true;
+    setFetching(true);
+    fetch(`${backendUrl}/api/calls/${call.id}`)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to load details");
+        return res.json();
+      })
+      .then(data => {
+        // Merge backend data with existing call
+        // Backend returns snake_case keys usually, ensure mapping matches Call interface
+        const fullCall: Call = {
+          ...call,
+          ...data,
+          // Ensure fields map correctly if backend uses snake_case
+          live_transcript: data.live_transcript ?? data.liveTranscript,
+          final_transcript: data.final_transcript ?? data.finalTranscript,
+          summary: data.summary,
+          detailsLoaded: true
+        };
+        onCallUpdated(fullCall);
+      })
+      .catch(err => console.error("Failed to fetch call details", err))
+      .finally(() => setFetching(false));
+
+  }, [call, onCallUpdated]);
+
   if (!call) return null;
 
   const status = (call.status || "").toLowerCase();
@@ -532,6 +576,9 @@ const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose }) => {
     // Fallback: if only final exists
     text = call.final_transcript;
   }
+
+  // Also showing summary if available
+  const summaryText = call.summary?.summary;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -556,16 +603,31 @@ const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose }) => {
         </div>
 
         {/* Body */}
-        <div className="px-4 py-3 flex-1 overflow-auto">
+        <div className="px-4 py-3 flex-1 overflow-auto space-y-4">
+          {fetching && (
+            <div className="text-xs text-slate-500 italic">Loading full transcript...</div>
+          )}
+
+          {/* Summary Section */}
+          {summaryText && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+              <h4 className="text-xs font-semibold text-blue-900 mb-1">Summary</h4>
+              <p className="text-xs text-blue-800 leading-relaxed">{summaryText}</p>
+            </div>
+          )}
+
           {text ? (
             <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono bg-slate-50 rounded-lg p-3 border border-slate-200">
               {text}
             </pre>
           ) : (
-            <p className="text-sm text-slate-500">
-              No transcript available yet for this call.
-            </p>
+            !fetching && (
+              <p className="text-sm text-slate-500">
+                No transcript available yet for this call.
+              </p>
+            )
           )}
+
         </div>
 
         {/* Footer (optional) */}

@@ -117,10 +117,38 @@ def list_calls(client_id: str, session: Session = Depends(get_session)):
     for c in calls:
         c_dict = c.dict()
         c_dict["hasListenUrl"] = bool(c.listen_url)
+        
+        # Compute if we have a transcript BEFORE removing the fields
+        has_transcript = bool(c.live_transcript or c.final_transcript)
+        c_dict["hasTranscript"] = has_transcript
+
+        # Exclude heavy fields for list view
         c_dict.pop("listen_url", None)
-        c_dict.pop("control_url", None) # also sensitive
+        c_dict.pop("control_url", None)
+        c_dict.pop("live_transcript", None)
+        c_dict.pop("final_transcript", None)
+        c_dict.pop("summary", None)
         public_calls.append(c_dict)
     return public_calls
+
+
+@app.get("/api/calls/{call_id}")
+def get_call(call_id: str, session: Session = Depends(get_session)):
+    call = session.get(Call, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    # Return full details including transcript/summary
+    # But still mask sensitive internal URLs if needed, or proxy them.
+    # For now, just scrubbing listen/control URL properties directly
+    # and using hasListenUrl is consistent.
+    
+    c_dict = call.dict()
+    c_dict["hasListenUrl"] = bool(call.listen_url)
+    c_dict.pop("listen_url", None)
+    c_dict.pop("control_url", None)
+    
+    return c_dict
 
 # --- DEBUG: create or update a fake call --- #
 @app.post("/api/debug/create-test-call/{client_id}")
