@@ -9,11 +9,12 @@ export type Call = {
   status?: string | null;
   started_at?: string | null;
   ended_at?: string | null;
-  listen_url?: string | null;
+  has_listen_url?: boolean;
 
   hasTranscript?: boolean;
   hasLiveTranscript?: boolean;
   hasRecording?: boolean;
+  recording_url?: string | null;
 
   // NEW: transcript fields
   live_transcript?: string | null;   // incremental transcript (for active calls)
@@ -27,6 +28,7 @@ const CallDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [transcriptModalCallId, setTranscriptModalCallId] = useState<string | null>(null);
   const [listenModalCallId, setListenModalCallId] = useState<string | null>(null);
+  const [recordingModalCallId, setRecordingModalCallId] = useState<string | null>(null);
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
@@ -53,13 +55,14 @@ const CallDashboard: React.FC = () => {
           status: c.status ?? null,
           started_at: c.started_at ?? c.startedAt ?? null,
           ended_at: c.ended_at ?? c.endedAt ?? null,
-          listen_url: c.listen_url ?? c.listenUrl ?? null,
+          has_listen_url: c.hasListenUrl ?? Boolean(c.listen_url) ?? false,
           hasTranscript:
             c.hasTranscript ?? Boolean(c.final_transcript),
           hasLiveTranscript:
             c.hasLiveTranscript ?? Boolean(c.live_transcript),
           hasRecording:
             c.hasRecording ?? Boolean(c.recording_url),
+          recording_url: c.recording_url ?? c.recordingUrl ?? null,
           live_transcript: c.live_transcript ?? null,
           final_transcript: c.final_transcript ?? null,
         }));
@@ -88,13 +91,14 @@ const CallDashboard: React.FC = () => {
       status: c.status ?? null,
       started_at: c.startedAt ?? c.started_at ?? null,
       ended_at: c.endedAt ?? c.ended_at ?? null,
-      listen_url: c.listenUrl ?? c.listen_url ?? null,
+      has_listen_url: c.hasListenUrl ?? Boolean(c.listenUrl) ?? false,
       hasTranscript:
         c.hasTranscript ?? undefined,      // backend already sends flags
       hasLiveTranscript:
         c.hasLiveTranscript ?? undefined,
       hasRecording:
         c.hasRecording ?? undefined,
+      recording_url: c.recordingUrl ?? c.recording_url ?? undefined,
       final_transcript:
         c.finalTranscript ?? c.final_transcript ?? undefined,
       live_transcript:
@@ -110,12 +114,16 @@ const CallDashboard: React.FC = () => {
         const merged: Call = {
           ...old,
           ...newCall,
+          // Merge flags
+          has_listen_url: newCall.has_listen_url ?? old.has_listen_url ?? false,
           hasTranscript:
             newCall.hasTranscript ?? old.hasTranscript ?? false,
           hasLiveTranscript:
             newCall.hasLiveTranscript ?? old.hasLiveTranscript ?? false,
           hasRecording:
             newCall.hasRecording ?? old.hasRecording ?? false,
+          recording_url:
+            newCall.recording_url ?? old.recording_url ?? null,
           final_transcript:
             newCall.final_transcript ?? old.final_transcript ?? null,
           live_transcript:
@@ -260,7 +268,9 @@ const CallDashboard: React.FC = () => {
             disabled={!c.hasRecording}
             onClick={() => {
               console.log("Call Recording clicked for", c.id);
-              // later: open RecordingModal & play c.recording_url (from a detail endpoint)
+              if (c.recording_url) {
+                setRecordingModalCallId(c.id);
+              }
             }}
           >
             Call Recording
@@ -285,9 +295,9 @@ const CallDashboard: React.FC = () => {
       <div className="flex gap-2">
         <button
           className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-          disabled={!c.listen_url}
+          disabled={!c.has_listen_url}
           onClick={() => {
-            console.log("Listen clicked for", c.id, "listen_url=", c.listen_url);
+            console.log("Listen clicked for", c.id);
             setListenModalCallId(c.id);
           }}
         >
@@ -456,6 +466,14 @@ const CallDashboard: React.FC = () => {
         />
       )}
 
+      {/* Recording Modal */}
+      {recordingModalCallId && (
+        <RecordingModal
+          call={calls.find((c) => c.id === recordingModalCallId) || null}
+          onClose={() => setRecordingModalCallId(null)}
+        />
+      )}
+
 
     </div>
   );
@@ -557,13 +575,13 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
 
   // Effect: open WebSocket to call.listen_url and play audio
   React.useEffect(() => {
-    if (!call || !call.listen_url) {
+    if (!call || !call.has_listen_url) {
       setWsStatus("error");
       setAudioError("No listen URL available for this call.");
       return;
     }
 
-    console.log("[ListenModal] Connecting to listenUrl:", call.listen_url);
+    console.log("[ListenModal] Connecting to listenUrl for:", call.id);
 
     const AudioCtx =
       (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -795,6 +813,47 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
 
 
 
+
+type RecordingModalProps = {
+  call: Call | null;
+  onClose: () => void;
+};
+
+const RecordingModal: React.FC<RecordingModalProps> = ({ call, onClose }) => {
+  if (!call || !call.recording_url) return null;
+
+  // If the URL is relative, prepend backendUrl. 
+  // If it's absolute (starts with http), leave it.
+  const isAbsolute = call.recording_url.startsWith("http");
+  const src = isAbsolute
+    ? call.recording_url
+    : `${backendUrl}${call.recording_url.startsWith("/") ? "" : "/"}${call.recording_url}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col p-4">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Recording – <span className="font-mono text-xs">{call.id}</span>
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="flex flex-col items-center gap-4 py-4">
+          <audio controls autoPlay src={src} className="w-full" />
+          <p className="text-xs text-slate-500 break-all text-center">
+            {src}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const StatusBadge: React.FC<{ status?: string | null }> = ({ status }) => {
   const s = (status || "").toLowerCase();

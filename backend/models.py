@@ -20,6 +20,7 @@ class Call(SQLModel, table=True):
     status: Optional[str] = None
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
+    cost: Optional[float] = None
 
     # Streaming / live listening
     listen_url: Optional[str] = None

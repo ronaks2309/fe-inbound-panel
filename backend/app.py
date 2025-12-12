@@ -9,7 +9,8 @@ import random
 import httpx
 from fastapi import HTTPException
 
-from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, Body, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from datetime import datetime
@@ -44,10 +45,21 @@ def on_startup():
             demo = Client(id="demo-client", name="Demo Client")
             session.add(demo)
             session.commit()
+    
+    # Ensure recordings directory exists
+    os.makedirs("recordings", exist_ok=True)
 
 @app.get("/")
 def read_root():
     return {"message": "Vapi dashboard backend is running"}
+
+# --- File Serving: Recordings --- #
+@app.get("/api/recordings/{filename}")
+async def get_recording(filename: str):
+    file_path = os.path.join("recordings", filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return FileResponse(file_path)
 
 @app.get("/health")
 def health():
@@ -100,7 +112,15 @@ def list_calls(client_id: str, session: Session = Depends(get_session)):
         .order_by(Call.created_at.desc())
     )
     calls = session.exec(stmt).all()
-    return calls
+    # Mask sensitive fields to prevent leak
+    public_calls = []
+    for c in calls:
+        c_dict = c.dict()
+        c_dict["hasListenUrl"] = bool(c.listen_url)
+        c_dict.pop("listen_url", None)
+        c_dict.pop("control_url", None) # also sensitive
+        public_calls.append(c_dict)
+    return public_calls
 
 # --- DEBUG: create or update a fake call --- #
 @app.post("/api/debug/create-test-call/{client_id}")
@@ -172,7 +192,7 @@ async def create_test_call(
             "phoneNumber": call.phone_number,
             "startedAt": call.started_at.isoformat() if call.started_at else None,
             "EndedAt": call.ended_at.isoformat() if call.ended_at else None,
-            "listenUrl": None,
+            "hasListenUrl": False,
         }
     })
 
@@ -597,7 +617,7 @@ async def _handle_status_update(
             "phoneNumber": call.phone_number,
             "startedAt": call.started_at.isoformat() if call.started_at else None,
             "endedAt": call.ended_at.isoformat() if call.ended_at else None,
-            "listenUrl": call.listen_url,
+            "hasListenUrl": bool(call.listen_url),
             "hasTranscript": bool(call.final_transcript),
             "hasLiveTranscript": bool(call.live_transcript),
             "hasRecording": bool(call.recording_url),
@@ -700,7 +720,7 @@ async def _handle_assistant_started(
             "phoneNumber": call.phone_number,
             "startedAt": call.started_at.isoformat() if call.started_at else None,
             "endedAt": call.ended_at.isoformat() if call.ended_at else None,
-            "listenUrl": call.listen_url,
+            "hasListenUrl": bool(call.listen_url),
             "hasTranscript": bool(call.final_transcript),
             "hasLiveTranscript": bool(call.live_transcript),
             "hasRecording": bool(call.recording_url),
@@ -848,29 +868,63 @@ async def _handle_end_of_call_report(
         print("[VAPI][end-of-call-report] Missing call.id, ignoring.")
         return {"ok": False, "error": "missing call.id"}
 
-    phone_number = call_data.get("phoneNumber") or call_data.get("from")
+    customer = message.get("customer", {}) or {}
+    phone_number = customer.get("number")
     listen_url = call_data.get("listenUrl") or call_data.get("listen_url")
     control_url = call_data.get("controlUrl") or call_data.get("control_url")
 
     artifact = message.get("artifact") or {}
+    analysis = message.get("analysis") or {}
 
-    # Final transcript lives here
-    final_transcript = artifact.get("transcript")
-
-    # Recording: depending on Vapi, may have multiple urls
-    recording = artifact.get("recording") or {}
-    recording_url = (
-        recording.get("url")
-        or recording.get("mp3Url")
-        or recording.get("wavUrl")
-        or recording.get("downloadUrl")
+    # Final transcript
+    final_transcript = (
+        message.get("transcript") 
+        or artifact.get("transcript")
     )
 
-    # Conversation messages / summary – we just store raw artifact for now
+    # Recording
+    original_recording_url = (
+        message.get("recordingUrl")
+        or artifact.get("recordingUrl")
+    )
+    recording_url = None
+
+    if original_recording_url:
+        try:
+            # Download and save securely
+            filename = f"{call_id}.mp3"
+            filepath = os.path.join("recordings", filename)
+            
+            async with httpx.AsyncClient() as http_client:
+                resp = await http_client.get(original_recording_url)
+                if resp.status_code == 200:
+                    with open(filepath, "wb") as f:
+                        f.write(resp.content)
+                    recording_url = f"/api/recordings/{filename}"
+                    print(f"[end-of-call] Downloaded recording to {filepath}")
+                else:
+                    print(f"[end-of-call] Failed to download recording: {resp.status_code}")
+                    # recording_url remains None
+        except Exception as e:
+            print(f"[end-of-call] Error downloading recording: {e}")
+            # recording_url remains None
+
+    # Summary: only the text summary
+    summary_text = (
+        message.get("summary")
+        or analysis.get("summary")
+    )
     summary = {
-        "messages": artifact.get("messages"),
-        "endedReason": message.get("endedReason"),
+        "summary": summary_text
     }
+    
+    # Cost & Dates
+    cost = message.get("cost")
+    started_at_str = message.get("startedAt")
+    ended_at_str = message.get("endedAt")
+
+
+
 
     call, is_update = _get_or_create_call(
         session,
@@ -884,7 +938,28 @@ async def _handle_end_of_call_report(
     # Ended status
     call.status = "ended"
     now = datetime.utcnow()
+    
+    # If Vapi provided explicit timestamps, parse them
+    # Format: 2025-12-12T07:03:19.477Z
+    # Python 3.7+ fromisoformat supports YYYY-MM-DDTHH:MM:SS.mmmmmm but 'Z' can be tricky on older python versions without replacement.
+    # We'll replace Z with +00:00 just in case.
+    if started_at_str:
+        try:
+            call.started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+        except:
+            pass
+            
+    if ended_at_str:
+        try:
+            call.ended_at = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00"))
+        except:
+            pass
+            
+    # Fallback if parsing failed or not provided
     call.ended_at = call.ended_at or now
+
+    if cost is not None:
+        call.cost = cost
 
     if final_transcript:
         call.final_transcript = final_transcript.strip()
@@ -919,7 +994,7 @@ async def _handle_end_of_call_report(
             "phoneNumber": call.phone_number,
             "startedAt": call.started_at.isoformat() if call.started_at else None,
             "endedAt": call.ended_at.isoformat() if call.ended_at else None,
-            "listenUrl": call.listen_url,
+            "hasListenUrl": bool(call.listen_url),
 
             # NEW: transcript + recording fields
             "finalTranscript": call.final_transcript,
