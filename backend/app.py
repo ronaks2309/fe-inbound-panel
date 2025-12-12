@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 from datetime import datetime
 import json
 
-from db import init_db, get_session
+from db import init_db, get_session, engine
 from models import Client, Call, CallStatusEvent
 from websocket_manager import manager #from websocket_manager.py
 
@@ -390,10 +390,42 @@ async def ws_dashboard(ws: WebSocket):
 
     try:
         while True:
-            # we don't care what the client sends yet, just keep the connection alive
-            await ws.receive_text()
+            # Handle incoming messages from dashboard (subscribe/unsubscribe)
+            data = await ws.receive_json()
+            msg_type = data.get("type")
+            call_id = data.get("callId")
+
+            if msg_type == "subscribe" and call_id:
+                print(f"[WS] Client subscribed to transcript for {call_id}")
+                await manager.subscribe(ws, call_id)
+                
+                # Send current transcript immediately if available
+                # We need a session to query DB. "get_session" is a generator dependency.
+                # We can manually create a session or assume the client will get next update.
+                # BETTER: Just fetch it quickly. 
+                # (Ideally, we'd refactor to have session access here, but for now let's just 
+                # wait for next update OR try to fetch if we can easily. 
+                # Since 'get_session' yields, we can simple use a context manager.)
+                with Session(engine) as session:
+                    call = session.get(Call, call_id)
+                    if call and call.live_transcript:
+                         await ws.send_json({
+                            "type": "transcript-update",
+                            "clientId": "system",
+                            "callId": call.id,
+                            "append": None, # Full replace or just initial load
+                            "fullTranscript": call.live_transcript,
+                        })
+
+            elif msg_type == "unsubscribe" and call_id:
+                print(f"[WS] Client unsubscribed form {call_id}")
+                await manager.unsubscribe(ws, call_id)
+
     except WebSocketDisconnect:
         print("Dashboard WS client disconnected")
+        await manager.unregister_dashboard(ws)
+    except Exception as e:
+        print(f"[WS] Error in dashboard loop: {e}")
         await manager.unregister_dashboard(ws)
 
 
@@ -825,14 +857,36 @@ async def _handle_transcript_update(
     session.refresh(call)
     session.refresh(status_event)
 
-    # Broadcast transcript-update, so UI can show real-time transcript
-    await manager.broadcast_dashboard({
+    # Broadcast transcript-update ONLY to subscribers
+    await manager.broadcast_transcript({
         "type": "transcript-update",
         "clientId": client_id,
         "callId": call.id,
         "append": transcript_text,
         "fullTranscript": call.live_transcript,
-    })
+    }, call_id=call.id)
+    
+    # If this is the FIRST chunk, we might want to notify general dashboard 
+    # that "hasLiveTranscript" is now true. 
+    # We can do a lightweight call-upsert only if needed.
+    # Logic: if call.live_transcript was just created (length == len(append_chunk)), broadcast.
+    if transcript_text and call.live_transcript and len(call.live_transcript) == len(transcript_text):
+         # This is likely the first chunk
+         await manager.broadcast_dashboard({
+            "type": "call-upsert",
+            "clientId": client_id,
+            "call": {
+                "id": call.id,
+                "status": call.status,
+                "phoneNumber": call.phone_number,
+                "startedAt": call.started_at.isoformat() if call.started_at else None,
+                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "hasListenUrl": bool(call.listen_url),
+                "hasTranscript": bool(call.final_transcript),
+                "hasLiveTranscript": True, # Updated
+                "hasRecording": bool(call.recording_url),
+            }
+        })
 
     return {
         "ok": True,

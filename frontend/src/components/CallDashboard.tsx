@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -32,6 +32,9 @@ const CallDashboard: React.FC = () => {
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
+
+  // WebSocket ref for subscriptions
+  const wsRef = useRef<WebSocket | null>(null);
 
 
 
@@ -196,13 +199,14 @@ const CallDashboard: React.FC = () => {
     console.log("Connecting WebSocket to:", wsUrl);
 
     const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
     ws.onopen = () => {
       console.log("Dashboard WS open");
     };
 
     ws.onmessage = (event) => {
-      console.log("Dashboard WS raw message:", event.data);
+      // console.log("Dashboard WS raw message:", event.data);
       try {
         const msg = JSON.parse(event.data as string);
 
@@ -246,8 +250,32 @@ const CallDashboard: React.FC = () => {
 
     return () => {
       ws.close();
+      wsRef.current = null;
     };
   }, []);
+
+  // 4) Subscription management for transcript
+  useEffect(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    if (transcriptModalCallId) {
+      console.log(`[Dashboard] Subscribing to call ${transcriptModalCallId}`);
+      wsRef.current.send(JSON.stringify({
+        type: "subscribe",
+        callId: transcriptModalCallId
+      }));
+    }
+
+    return () => {
+      if (transcriptModalCallId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log(`[Dashboard] Unsubscribing from call ${transcriptModalCallId}`);
+        wsRef.current.send(JSON.stringify({
+          type: "unsubscribe",
+          callId: transcriptModalCallId
+        }));
+      }
+    };
+  }, [transcriptModalCallId]);
 
 
 
@@ -726,8 +754,7 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
       playHeadRef.current = null;
     };
 
-
-  }, [call]);
+  }, [call?.id, call?.has_listen_url]);
 
 
   if (!call) return null;
@@ -764,36 +791,11 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
             </span>
           </div>
 
-          <div className="text-xs text-slate-500">
-            Listening to audio stream via secure proxy:
-            <div className="mt-1">
-              <code className="break-all bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px]">
-                {backendUrl.replace(/^http/, "ws")}/ws/listen/{call.id}
-              </code>
-            </div>
-          </div>
-
           {audioError && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
               {audioError}
             </div>
           )}
-
-          <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-            <p className="font-medium mb-1">Notes:</p>
-            <ul className="list-disc ml-4 space-y-0.5">
-              <li>
-                With the <span className="font-mono">/ws/fake-audio</span>{" "}
-                endpoint, you&apos;ll hear static noise (random bytes).
-              </li>
-              <li>
-                When you plug in a real Vapi <span className="font-mono">listenUrl</span>, you should hear actual call audio.
-              </li>
-              <li>
-                Closing this modal stops the audio and closes the WebSocket.
-              </li>
-            </ul>
-          </div>
         </div>
 
         {/* Footer */}
