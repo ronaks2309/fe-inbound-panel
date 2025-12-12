@@ -1,0 +1,11 @@
+{
+    "sqltools.useNodeRuntime": true,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "${workspaceFolder:fe-inbound-panel}/backend/vapi_dashboard.db",
+            "name": "vapi_dash_dev"
+        }
+    ]
+}

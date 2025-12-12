@@ -132,54 +132,54 @@ const CallDashboard: React.FC = () => {
 
   // 2.5) Helper: force transfer a call to a licensed agent
   async function handleForceTransfer(call: Call) {
-  if (!call.id || !call.client_id) return;
+    if (!call.id || !call.client_id) return;
 
-  // TODO: later make this configurable per client
-  const agentPhone = "+16504848853";
+    // TODO: later make this configurable per client
+    const agentPhone = "+16504848853";
 
-  // Only allow on live-ish calls
-  const status = (call.status || "").toLowerCase();
-  if (!["in-progress", "ringing", "queued"].includes(status)) {
-    setForceTransferError("Force transfer is only available on live calls.");
-    return;
-  }
-
-  setForceTransferLoadingId(call.id);
-  setForceTransferMessage(null);
-  setForceTransferError(null);
-
-  try {
-    const res = await fetch(
-      `${backendUrl}/api/${call.client_id}/calls/${call.id}/force-transfer`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_phone_number: agentPhone,
-          content: "Transferring your call now to a licensed agent.",
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `HTTP ${res.status}`);
+    // Only allow on live-ish calls
+    const status = (call.status || "").toLowerCase();
+    if (!["in-progress", "ringing", "queued"].includes(status)) {
+      setForceTransferError("Force transfer is only available on live calls.");
+      return;
     }
 
-    const data = await res.json();
-    console.log("Force transfer success:", data);
-    setForceTransferMessage(
-      `Transfer requested for call ${call.id} → ${agentPhone}`
-    );
-  } catch (e: any) {
-    console.error("Force transfer error:", e);
-    setForceTransferError(
-      e?.message || "Failed to request force transfer."
-    );
-  } finally {
-    setForceTransferLoadingId(null);
+    setForceTransferLoadingId(call.id);
+    setForceTransferMessage(null);
+    setForceTransferError(null);
+
+    try {
+      const res = await fetch(
+        `${backendUrl}/api/${call.client_id}/calls/${call.id}/force-transfer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agent_phone_number: agentPhone,
+            content: "Transferring your call now to a licensed agent.",
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      console.log("Force transfer success:", data);
+      setForceTransferMessage(
+        `Transfer requested for call ${call.id} → ${agentPhone}`
+      );
+    } catch (e: any) {
+      console.error("Force transfer error:", e);
+      setForceTransferError(
+        e?.message || "Failed to request force transfer."
+      );
+    } finally {
+      setForceTransferLoadingId(null);
+    }
   }
-}
 
 
   // 3) WebSocket: listen for call-upsert events
@@ -193,39 +193,39 @@ const CallDashboard: React.FC = () => {
       console.log("Dashboard WS open");
     };
 
-ws.onmessage = (event) => {
-  console.log("Dashboard WS raw message:", event.data);
-  try {
-    const msg = JSON.parse(event.data as string);
+    ws.onmessage = (event) => {
+      console.log("Dashboard WS raw message:", event.data);
+      try {
+        const msg = JSON.parse(event.data as string);
 
-    if (msg.type === "call-upsert") {
-      console.log("Dashboard WS call-upsert:", msg);
-      handleCallUpsert(msg);
-    } else if (msg.type === "transcript-update") {
-      console.log("Dashboard WS transcript-update:", msg);
+        if (msg.type === "call-upsert") {
+          console.log("Dashboard WS call-upsert:", msg);
+          handleCallUpsert(msg);
+        } else if (msg.type === "transcript-update") {
+          console.log("Dashboard WS transcript-update:", msg);
 
-      const callId: string = msg.callId;
-      const fullTranscript: string | undefined = msg.fullTranscript;
+          const callId: string = msg.callId;
+          const fullTranscript: string | undefined = msg.fullTranscript;
 
-      setCalls((prev) =>
-        prev.map((c) =>
-          c.id === callId
-            ? {
-                ...c,
-                hasLiveTranscript: true,
-                live_transcript:
-                  fullTranscript ?? c.live_transcript ?? null,
-              }
-            : c
-        )
-      );
-    } else {
-      console.log("Dashboard WS other message:", msg);
-    }
-  } catch (err) {
-    console.warn("Failed to parse WS message as JSON", err);
-  }
-};
+          setCalls((prev) =>
+            prev.map((c) =>
+              c.id === callId
+                ? {
+                  ...c,
+                  hasLiveTranscript: true,
+                  live_transcript:
+                    fullTranscript ?? c.live_transcript ?? null,
+                }
+                : c
+            )
+          );
+        } else {
+          console.log("Dashboard WS other message:", msg);
+        }
+      } catch (err) {
+        console.warn("Failed to parse WS message as JSON", err);
+      }
+    };
 
 
     ws.onerror = (event) => {
@@ -319,146 +319,146 @@ ws.onmessage = (event) => {
 
   // 5) Main render
   return (
-  <div className="min-h-screen flex flex-col items-center px-4 py-6">
-    <div className="w-full max-w-6xl">
-      {/* Header */}
-      <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            Vapi Live Dashboard
-          </h1>
-          <p className="text-sm text-slate-500">
-            Client: <span className="font-mono">demo-client</span>
-          </p>
-        </div>
-        <div className="text-xs text-slate-400">
-          Backend:{" "}
-          <code className="bg-slate-100 px-1.5 py-0.5 rounded">
-            {backendUrl}
-          </code>
-        </div>
-      </header>
-
-      {/* Main card */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-slate-800">
-            Live Calls
-          </h2>
-          {loading && (
-            <span className="text-xs text-slate-400">
-              Loading…
-            </span>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="p-4">
-          {error && (
-            <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              Error: {error}
-            </div>
-          )}
-
-          {forceTransferMessage && (
-            <p className="mt-3 text-xs text-emerald-700">
-              {forceTransferMessage}
-            </p>
-          )}
-          
-          {forceTransferError && (
-            <p className="mt-2 text-xs text-red-600">
-              {forceTransferError}
-            </p>
-          )}
-
-
-          {!loading && !error && calls.length === 0 && (
+    <div className="min-h-screen flex flex-col items-center px-4 py-6">
+      <div className="w-full max-w-6xl">
+        {/* Header */}
+        <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">
+              Vapi Live Dashboard
+            </h1>
             <p className="text-sm text-slate-500">
-              No calls yet. Use the debug endpoint{" "}
-              <code className="bg-slate-100 px-1 py-0.5 rounded">
-                POST /api/debug/create-test-call/demo-client
-              </code>{" "}
-              or send real Vapi webhooks to populate this table.
+              Client: <span className="font-mono">demo-client</span>
             </p>
-          )}
+          </div>
+          <div className="text-xs text-slate-400">
+            Backend:{" "}
+            <code className="bg-slate-100 px-1.5 py-0.5 rounded">
+              {backendUrl}
+            </code>
+          </div>
+        </header>
 
-          {!loading && !error && calls.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      Call ID
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      Phone
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      Status
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      Started At
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {calls.map((c) => (
-                    <tr
-                      key={c.id}
-                      className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-3 py-2 font-mono text-xs text-slate-800">
-                        {c.id}
-                      </td>
-                      <td className="px-3 py-2 text-slate-800">
-                        {c.phone_number || "-"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <StatusBadge status={c.status} />
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">
-                        {c.started_at
-                          ? new Date(c.started_at).toLocaleString()
-                          : "-"}
-                      </td>
-                      <td className="px-3 py-2">
-                        {renderActions(c)}
-                      </td>
+        {/* Main card */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-slate-800">
+              Live Calls
+            </h2>
+            {loading && (
+              <span className="text-xs text-slate-400">
+                Loading…
+              </span>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="p-4">
+            {error && (
+              <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                Error: {error}
+              </div>
+            )}
+
+            {forceTransferMessage && (
+              <p className="mt-3 text-xs text-emerald-700">
+                {forceTransferMessage}
+              </p>
+            )}
+
+            {forceTransferError && (
+              <p className="mt-2 text-xs text-red-600">
+                {forceTransferError}
+              </p>
+            )}
+
+
+            {!loading && !error && calls.length === 0 && (
+              <p className="text-sm text-slate-500">
+                No calls yet. Use the debug endpoint{" "}
+                <code className="bg-slate-100 px-1 py-0.5 rounded">
+                  POST /api/debug/create-test-call/demo-client
+                </code>{" "}
+                or send real Vapi webhooks to populate this table.
+              </p>
+            )}
+
+            {!loading && !error && calls.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Call ID
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Phone
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Status
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Started At
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-x
+                  </thead>
+                  <tbody>
+                    {calls.map((c) => (
+                      <tr
+                        key={c.id}
+                        className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="px-3 py-2 font-mono text-xs text-slate-800">
+                          {c.id}
+                        </td>
+                        <td className="px-3 py-2 text-slate-800">
+                          {c.phone_number || "-"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <StatusBadge status={c.status} />
+                        </td>
+                        <td className="px-3 py-2 text-slate-700">
+                          {c.started_at
+                            ? new Date(c.started_at).toLocaleString()
+                            : "-"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {renderActions(c)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            x
 
+          </div>
         </div>
       </div>
+
+      {/* Transcript Modal */}
+      {transcriptModalCallId && (
+        <TranscriptModal
+          call={calls.find((c) => c.id === transcriptModalCallId) || null}
+          onClose={() => setTranscriptModalCallId(null)}
+        />
+      )}
+
+      {/* Listen Modal */}
+      {listenModalCallId && (
+        <ListenModal
+          call={calls.find((c) => c.id === listenModalCallId) || null}
+          onClose={() => setListenModalCallId(null)}
+        />
+      )}
+
+
     </div>
-
-    {/* Transcript Modal */}
-    {transcriptModalCallId && (
-      <TranscriptModal
-        call={calls.find((c) => c.id === transcriptModalCallId) || null}
-        onClose={() => setTranscriptModalCallId(null)}
-      />
-    )}
-
-    {/* Listen Modal */}
-    {listenModalCallId && (
-      <ListenModal
-        call={calls.find((c) => c.id === listenModalCallId) || null}
-        onClose={() => setListenModalCallId(null)}
-      />
-    )}
-
-
-  </div>
-);
+  );
 
 };
 
@@ -602,7 +602,10 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
     setWsStatus("connecting");
 
     try {
-      ws = new WebSocket(call.listen_url);
+      // Use backend proxy instead of direct VAPI URL
+      const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}`;
+      console.log("[ListenModal] Connecting to proxy:", wsUrl);
+      ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
     } catch (err) {
       console.error("[ListenModal] Failed to open WS:", err);
@@ -689,19 +692,19 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
       setWsStatus("closed");
     };
 
-    
+
     return () => {
       console.log("[ListenModal] cleanup → closing WS + AudioContext");
       try {
         ws && ws.close();
-      } catch {}
+      } catch { }
       try {
         filterNode.disconnect();
         gainNode.disconnect();
-      } catch {}
+      } catch { }
       try {
         audioCtx.close();
-      } catch {}
+      } catch { }
       playHeadRef.current = null;
     };
 
@@ -744,10 +747,10 @@ const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
           </div>
 
           <div className="text-xs text-slate-500">
-            Listening to audio stream from:
+            Listening to audio stream via secure proxy:
             <div className="mt-1">
               <code className="break-all bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px]">
-                {call.listen_url}
+                {backendUrl.replace(/^http/, "ws")}/ws/listen/{call.id}
               </code>
             </div>
           </div>

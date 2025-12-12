@@ -266,6 +266,99 @@ async def fake_audio_websocket(ws: WebSocket):
 
 
 
+import websockets # type: ignore
+
+# ... imports ...
+
+# --- WebSocket: Listen Proxy (hides upstream VAPI URL) --- #
+@app.websocket("/ws/listen/{call_id}")
+async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Session = Depends(get_session)):
+    await websocket.accept()
+    
+    # 1. Look up the call
+    call = session.get(Call, call_id)
+    if not call or not call.listen_url:
+        print(f"[listen-proxy] Call {call_id} not found or missing listen_url")
+        await websocket.close(code=1000, reason="No listen URL found")
+        return
+
+    target_url = call.listen_url
+    print(f"[listen-proxy] Proxying {call_id} -> {target_url}")
+
+    # 2. Connect to upstream VAPI
+    try:
+        async with websockets.connect(target_url, subprotocols=["wss", "https"]) as upstream_ws:
+            
+            # Create a task to forward upstream -> client
+            async def upstream_to_client():
+                try:
+                    async for message in upstream_ws:
+                        # message can be str (text) or bytes (binary)
+                        if isinstance(message, str):
+                            await websocket.send_text(message)
+                        else:
+                            await websocket.send_bytes(message)
+                except Exception as e:
+                    print(f"[listen-proxy] Error upstream->client: {e}")
+
+            # Create a task to forward client -> upstream (rare, but good for heartbeat/close)
+            async def client_to_upstream():
+                try:
+                    while True:
+                        # We mostly expect the client to just listen, but we must receive to keep conn alive
+                        data = await websocket.receive()
+                        # data is a dict like {'type': 'websocket.receive', 'text': ...} or similar if we used raw receive
+                        # but FastAPI `websocket.receive()` returns a message dict.
+                        # Easier: use receive_text / receive_bytes based on what we see.
+                        # But `receive()` is generic. 
+                        # actually, let's use the iterator if possible, or simple receive loop
+                        
+                        if "text" in data:
+                            await upstream_ws.send(data["text"])
+                        elif "bytes" in data:
+                            await upstream_ws.send(data["bytes"])
+                        
+                        # If client closes? FastAPI raises WebSocketDisconnect usually on receive
+                except WebSocketDisconnect:
+                    print("[listen-proxy] Client disconnected")
+                except Exception as e:
+                    print(f"[listen-proxy] Error client->upstream: {e}")
+
+            # Run both
+            # We'll stick to a simple loop for client->upstream because FastAPI handles it well,
+            # but we need to run upstream_to_client in parallel.
+            
+            forward_task = asyncio.create_task(upstream_to_client())
+            
+            try:
+                while True:
+                     # Receive from client, forward to upstream
+                     try:
+                        message = await websocket.receive()
+                        if message["type"] == "websocket.disconnect":
+                            break
+                        
+                        if "text" in message:
+                            await upstream_ws.send(message["text"])
+                        if "bytes" in message:
+                            await upstream_ws.send(message["bytes"])
+                     except RuntimeError:
+                         # Websocket might be closed
+                         break
+            except WebSocketDisconnect:
+                print(f"[listen-proxy] Client disconnected {call_id}")
+            except Exception as e:
+                print(f"[listen-proxy] Error in main loop: {e}")
+            finally:
+                forward_task.cancel()
+                
+    except Exception as e:
+        print(f"[listen-proxy] Failed to connect upstream: {e}")
+        try:
+             await websocket.close(code=1011, reason="Upstream connection failed")
+        except:
+             pass
+
 # --- WebSocket: dashboard live connection --- #
 @app.websocket("/ws/dashboard")
 async def ws_dashboard(ws: WebSocket):
