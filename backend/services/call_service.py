@@ -1,0 +1,449 @@
+
+from datetime import datetime
+import os
+import httpx
+from sqlmodel import Session
+from database.models import Call, CallStatusEvent
+from services.websocket_manager import manager
+
+class CallService:
+    """
+    Service class to handle business logic for Vprod calls.
+    Encapsulates database operations and WebSocket broadcasting.
+    """
+
+    @staticmethod
+    def get_or_create_call(
+        session: Session,
+        client_id: str,
+        call_id: str,
+    ) -> tuple[Call, bool]:
+        """
+        Retrieves an existing call or creates a new one.
+
+        Args:
+            session (Session): Database session.
+            client_id (str): The client identifier.
+            call_id (str): The unique call identifier.
+
+        Returns:
+            tuple[Call, bool]: A tuple containing the Call object and a boolean 
+            indicating if it was created (True if newly created, False if existing).
+        """
+        now = datetime.utcnow()
+        existing = session.get(Call, call_id)
+        
+        created = False
+        if existing:
+            call = existing
+        else:
+            call = Call(
+                id=call_id,
+                client_id=client_id,
+            )
+            session.add(call)
+            created = True
+            
+        call.updated_at = now
+        return call, created
+
+    @staticmethod
+    async def handle_status_update(
+        client_id: str,
+        message: dict,
+        full_payload: dict,
+        session: Session,
+    ):
+        """
+        Handles 'status-update' messages from Vprod.
+        Updates call status and broadcasts changes to the dashboard.
+        """
+        status = message.get("status")
+        call_data = message.get("call", {})
+        call_id = call_data.get("id")
+        
+        if not call_id:
+            print("[VProd][status-update] Missing call.id, ignoring.")
+            return {"ok": False, "error": "missing call.id"}
+
+        # Extract phone number from various possible fields
+        customer = message.get("customer", {}) or {}
+        phone_number = customer.get("number")
+
+        # Extract URLs
+        monitor = call_data.get("monitor") or {}
+        listen_url = monitor.get("listenUrl")
+        control_url = monitor.get("controlUrl")
+
+        # Get or create call (no field updates)
+        call, created = CallService.get_or_create_call(
+            session,
+            client_id,
+            call_id,
+        )
+
+        # Update fields directly
+        if phone_number:
+            call.phone_number = phone_number
+        if listen_url:
+            call.listen_url = listen_url
+        if control_url:
+            call.control_url = control_url
+        if status:
+            call.status = status
+
+        now = datetime.utcnow()
+        # Mark as ended if status indicates completion
+        #if status and status.lower() in {"ended"}:
+        #    call.ended_at = call.ended_at or now
+
+        call.updated_at = now
+
+        # Create status event record
+        status_event = CallStatusEvent(
+            call_id=call.id,
+            client_id=client_id,
+            status="status-update: " + (status or "unknown"),
+            payload=full_payload,
+        )
+        session.add(status_event)
+        session.commit()
+        session.refresh(call)
+        session.refresh(status_event)
+
+        # Broadcast update to UI
+        await manager.broadcast_dashboard({
+            "type": "call-upsert",
+            "clientId": client_id,
+            "call": {
+                "id": call.id,
+                "status": call.status,
+                "phoneNumber": call.phone_number,
+                "startedAt": call.started_at.isoformat() if call.started_at else None,
+                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "hasListenUrl": bool(call.listen_url),
+                "hasTranscript": bool(call.final_transcript),
+                "hasLiveTranscript": bool(call.live_transcript),
+                "hasRecording": bool(call.recording_url),
+            }
+        })
+
+        return {
+            "ok": True,
+            "type": "status-update",
+            "call_id": call.id,
+            "created": created,
+            "status_event_id": status_event.id,
+        }
+
+
+    @staticmethod
+    async def handle_transcript_update(
+        client_id: str,
+        message: dict,
+        full_payload: dict,
+        session: Session,
+    ):
+        """
+        Handles 'transcript' messages (live transcript).
+        Updates `call.live_transcript` and broadcasts real-time updates.
+        """
+        call_data = message.get("call", {})
+        call_id = call_data.get("id")
+        if not call_id:
+            print("[Vprod][transcript] Missing call.id, ignoring.")
+            return {"ok": False, "error": "missing call.id"}
+
+        raw_text = (message.get("transcript"))
+
+        role = (message.get("role") or "").lower()
+        prefix = ""
+        if role == "assistant":
+            prefix = "AI: "
+        elif role == "user":
+            prefix = "User: "
+
+        # Get or create call (no field updates)
+        call, created = CallService.get_or_create_call(
+            session,
+            client_id,
+            call_id
+        )
+
+        # Append logic
+        transcript_text = None
+        if raw_text:
+            if call.live_transcript:
+                lines = call.live_transcript.splitlines()
+                last_line = lines[-1] if lines else ""
+                last_role = None
+                if last_line.startswith("AI: "):
+                    last_role = "assistant"
+                elif last_line.startswith("User: "):
+                    last_role = "user"
+
+                if last_role == role:
+                    # Append to same line
+                    append_chunk = raw_text
+                    call.live_transcript = call.live_transcript + append_chunk
+                    transcript_text = append_chunk
+                else:
+                    # New line with prefix
+                    append_chunk = (prefix + raw_text).strip()
+                    call.live_transcript = call.live_transcript + "\n" + append_chunk
+                    transcript_text = append_chunk
+            else:
+                # First line
+                append_chunk = (prefix + raw_text).strip()
+                call.live_transcript = append_chunk
+                transcript_text = append_chunk
+
+        #call.updated_at = datetime.utcnow()
+
+        status_event = CallStatusEvent(
+            call_id=call.id,
+            client_id=client_id,
+            status="transcript-update",
+            payload=full_payload,
+        )
+        session.add(status_event)
+        session.commit()
+        session.refresh(call)
+        session.refresh(status_event)
+
+        # WebSocket broadcast for transcript
+        await manager.broadcast_transcript({
+            "type": "transcript-update",
+            "clientId": client_id,
+            "callId": call.id,
+            "append": transcript_text,
+            "fullTranscript": call.live_transcript,
+        }, call_id=call.id)
+        
+        # If first chunk, notify dashboard to show "View Transcript"
+        if transcript_text and call.live_transcript and len(call.live_transcript) == len(transcript_text):
+             await manager.broadcast_dashboard({
+                "type": "call-upsert",
+                "clientId": client_id,
+                "call": {
+                    "id": call.id,
+                    "status": call.status,
+                    "phoneNumber": call.phone_number,
+                    "startedAt": call.started_at.isoformat() if call.started_at else None,
+                    "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                    "hasListenUrl": bool(call.listen_url),
+                    "hasTranscript": bool(call.final_transcript),
+                    "hasLiveTranscript": True,
+                    "hasRecording": bool(call.recording_url),
+                }
+            })
+
+        return {
+            "ok": True,
+            "type": "transcript",
+            "call_id": call.id,
+            "created": created,
+            "status_event_id": status_event.id,
+        }
+
+    @staticmethod
+    async def handle_end_of_call_report(
+        client_id: str,
+        message: dict,
+        full_payload: dict,
+        session: Session,
+    ):
+        """
+        Handles 'end-of-call-report'.
+        Finalizes call data, downloads recording, and saves final transcript.
+        """
+        call_data = message.get("call", {}) or {}
+        call_id = call_data.get("id")
+        if not call_id:
+            print("[Vprod][end-of-call-report] Missing call.id, ignoring.")
+            return {"ok": False, "error": "missing call.id"}
+
+        # Extract call info
+        customer = message.get("customer", {}) or {}
+        phone_number = customer.get("number")
+
+        # Extract URLs
+        monitor = call_data.get("monitor") or {}
+        listen_url = monitor.get("listenUrl")
+        control_url = monitor.get("controlUrl")
+
+        # Get or create call (no field updates)
+        call, created = CallService.get_or_create_call(
+            session,
+            client_id,
+            call_id,
+        )
+
+        # Update fields directly
+        if phone_number:
+            call.phone_number = phone_number
+        if listen_url:
+            call.listen_url = listen_url
+        if control_url:
+            call.control_url = control_url
+
+        # Update status and other end-of-call fields
+        call.status = "ended"
+        
+        # Extract additional end-of-call data
+        artifact = message.get("artifact") or {}
+        analysis = message.get("analysis") or {}
+        final_transcript = message.get("transcript") or artifact.get("transcript")
+        
+        # Download Recording
+        original_recording_url = message.get("recordingUrl") or artifact.get("recordingUrl")
+        recording_url = None
+
+        if original_recording_url:
+            try:
+                filename = f"{call_id}.mp3"
+                filepath = os.path.join("recordings", filename)
+                # Ensure dir exists
+                os.makedirs("recordings", exist_ok=True)
+                
+                async with httpx.AsyncClient() as http_client:
+                    resp = await http_client.get(original_recording_url)
+                    if resp.status_code == 200:
+                        with open(filepath, "wb") as f:
+                            f.write(resp.content)
+                        recording_url = f"/api/recordings/{filename}"
+                        print(f"[end-of-call] Downloaded recording to {filepath}")
+                    else:
+                        print(f"[end-of-call] Failed to download recording: {resp.status_code}")
+            except Exception as e:
+                print(f"[end-of-call] Error downloading recording: {e}")
+
+        summary_text = message.get("summary") or analysis.get("summary")
+        summary = {"summary": summary_text}
+        
+        cost = message.get("cost")
+        started_at_str = message.get("startedAt")
+        ended_at_str = message.get("endedAt")
+        
+        now = datetime.utcnow()
+
+        if started_at_str:
+            try:
+                call.started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            except:
+                pass
+        
+        if ended_at_str:
+            try:
+                call.ended_at = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00"))
+            except:
+                pass
+        
+        call.ended_at = call.ended_at or now
+
+        if cost is not None:
+            call.cost = cost
+        if final_transcript:
+            call.final_transcript = final_transcript.strip()
+        if recording_url:
+            call.recording_url = recording_url
+        if summary is not None:
+            call.summary = summary
+
+        call.updated_at = now
+
+        status_event = CallStatusEvent(
+            call_id=call.id,
+            client_id=client_id,
+            status="end-of-call-report",
+            payload=full_payload,
+        )
+        session.add(status_event)
+        session.commit()
+        session.refresh(call)
+        session.refresh(status_event)
+
+        await manager.broadcast_dashboard({
+            "type": "call-upsert",
+            "clientId": client_id,
+            "call": {
+                "id": call.id,
+                "status": call.status,
+                "phoneNumber": call.phone_number,
+                "startedAt": call.started_at.isoformat() if call.started_at else None,
+                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "hasListenUrl": bool(call.listen_url),
+                "finalTranscript": call.final_transcript,
+                "liveTranscript": call.live_transcript,
+                "recordingUrl": call.recording_url,
+                "hasTranscript": bool(call.final_transcript),
+                "hasLiveTranscript": bool(call.live_transcript),
+                "hasRecording": bool(call.recording_url),
+            }
+        })
+
+        return {
+            "ok": True,
+            "type": "end-of-call-report",
+            "call_id": call.id,
+            "created": created,
+            "status_event_id": status_event.id,
+        }
+
+    @staticmethod
+    async def handle_generic_event(
+        client_id: str,
+        message: dict,
+        full_payload: dict,
+        session: Session,
+    ):
+        """
+        Handles generic or unknown events.
+        Logs the event without broadcasting specific updates.
+        """
+        call_data = message.get("call", {})
+        call_id = call_data.get("id")
+        if not call_id:
+            print("[Vprod][generic] Missing call.id. Just logging payload.")
+            return {"ok": False, "error": "missing call.id"}
+
+        # Extract call info from various possible field names
+        phone_number = call_data.get("phoneNumber") or call_data.get("from")
+        listen_url = call_data.get("listenUrl") or call_data.get("listen_url")
+        control_url = call_data.get("controlUrl") or call_data.get("control_url")
+
+        # Get or create call (no field updates)
+        call, created = CallService.get_or_create_call(
+            session,
+            client_id,
+            call_id,
+        )
+
+        # Update fields directly
+        if phone_number:
+            call.phone_number = phone_number
+        if listen_url:
+            call.listen_url = listen_url
+        if control_url:
+            call.control_url = control_url
+
+        status = message.get("status") or (message.get("type") or "generic")
+
+        status_event = CallStatusEvent(
+            call_id=call.id,
+            client_id=client_id,
+            status=status,
+            payload=full_payload,
+        )
+        session.add(status_event)
+        session.commit()
+        session.refresh(call)
+        session.refresh(status_event)
+
+        return {
+            "ok": True,
+            "type": "generic",
+            "call_id": call.id,
+            "created": created,
+            "status_event_id": status_event.id,
+        }
