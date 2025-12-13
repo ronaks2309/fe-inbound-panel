@@ -1,4 +1,26 @@
+/**
+ * CallDashboard Component
+ * 
+ * Real-time call monitoring dashboard with WebSocket updates.
+ * 
+ * Structure:
+ * - CallDashboard.tsx: Main component with table, WebSocket, state
+ * - TranscriptModal.tsx: View call transcripts
+ * - ListenModal.tsx: Live audio streaming
+ * - RecordingModal.tsx: Playback recordings
+ * 
+ * Features:
+ * - Real-time call list via WebSocket
+ * - Live audio streaming (Listen button)
+ * - Live transcript updates
+ * - Call recording playback
+ * - Force transfer to licensed agent
+ */
+
 import React, { useEffect, useState, useRef } from "react";
+import { TranscriptModal } from "./TranscriptModal";
+import { ListenModal } from "./ListenModal";
+import { RecordingModal } from "./RecordingModal";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -25,6 +47,8 @@ export type Call = {
 
 
 const CallDashboard: React.FC = () => {
+  // STATE: useState creates reactive variables that trigger re-renders when changed
+  // Pattern: [value, setValue] = useState(initialValue)
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,12 +59,14 @@ const CallDashboard: React.FC = () => {
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
 
-  // WebSocket ref for subscriptions
+  // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
+  // Perfect for storing WebSocket connections, timers, or DOM references
   const wsRef = useRef<WebSocket | null>(null);
 
 
 
-  // 1) Load initial calls via HTTP
+  // EFFECT 1: Load initial calls via HTTP when component first mounts
+  // useEffect with empty [] dependency array = runs ONCE on mount, never again
   useEffect(() => {
     async function loadCalls() {
       try {
@@ -87,7 +113,8 @@ const CallDashboard: React.FC = () => {
     loadCalls();
   }, []);
 
-  // 2) Helper: upsert a call into state by id from WS payload
+  // HELPER FUNCTION: Upsert (update or insert) a call from WebSocket payload
+  // This merges new data from the server with existing call data in state
   function handleCallUpsert(payload: any) {
     const c = payload.call;
     if (!c || !c.id) return;
@@ -113,11 +140,15 @@ const CallDashboard: React.FC = () => {
         c.liveTranscript ?? c.live_transcript ?? undefined,
     };
 
+    // STATE UPDATE WITH CALLBACK: Use callback pattern when new state depends on old state
+    // prev => prevents race conditions by always working with the latest state
     setCalls((prev) => {
       const idx = prev.findIndex((x) => String(x.id) === newCall.id);
       if (idx === -1) {
+        // Call doesn't exist - add it to the beginning of the array
         return [newCall, ...prev];
       } else {
+        // Call exists - merge new data with existing data
         const old = prev[idx];
         const merged: Call = {
           ...old,
@@ -198,18 +229,22 @@ const CallDashboard: React.FC = () => {
   }
 
 
-  // 3) WebSocket: listen for call-upsert events
+  // EFFECT 2: WebSocket connection for real-time dashboard updates
+  // This effect runs ONCE on mount and stays open until component unmounts
   useEffect(() => {
     const wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
     console.log("Connecting WebSocket to:", wsUrl);
 
+    // Create WebSocket connection that will stay open for entire session
     const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    wsRef.current = ws; // Store in ref so other parts of component can access it
 
     ws.onopen = () => {
       console.log("Dashboard WS open");
     };
 
+    // EVENT HANDLER: This function runs every time a message arrives from the server
+    // The WebSocket stays open and this listener remains active the entire time
     ws.onmessage = (event) => {
       // console.log("Dashboard WS raw message:", event.data);
       try {
@@ -217,7 +252,7 @@ const CallDashboard: React.FC = () => {
 
         if (msg.type === "call-upsert") {
           console.log("Dashboard WS call-upsert:", msg);
-          handleCallUpsert(msg);
+          handleCallUpsert(msg); // Update state with new/updated call data
         } else if (msg.type === "transcript-update") {
           console.log("Dashboard WS transcript-update:", msg);
 
@@ -253,16 +288,20 @@ const CallDashboard: React.FC = () => {
       console.log("Dashboard WS closed");
     };
 
+    // CLEANUP FUNCTION: React calls this automatically when component unmounts (you leave the page)
+    // This prevents memory leaks by closing the WebSocket connection
     return () => {
       ws.close();
       wsRef.current = null;
     };
-  }, []);
+  }, []); // Empty [] = run once on mount, cleanup on unmount
 
-  // 4) Subscription management for transcript
+  // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
+  // This runs whenever transcriptModalCallId CHANGES (user opens/closes transcript modal)
   useEffect(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
+    // When modal opens (transcriptModalCallId becomes a call ID), subscribe to that call
     if (transcriptModalCallId) {
       console.log(`[Dashboard] Subscribing to call ${transcriptModalCallId}`);
       wsRef.current.send(JSON.stringify({
@@ -271,6 +310,8 @@ const CallDashboard: React.FC = () => {
       }));
     }
 
+    // CLEANUP: When transcriptModalCallId changes or component unmounts, unsubscribe
+    // This runs BEFORE the next subscription and when modal closes
     return () => {
       if (transcriptModalCallId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         console.log(`[Dashboard] Unsubscribing from call ${transcriptModalCallId}`);
@@ -280,11 +321,13 @@ const CallDashboard: React.FC = () => {
         }));
       }
     };
-  }, [transcriptModalCallId]);
+  }, [transcriptModalCallId]); // Dependency: re-run whenever transcriptModalCallId changes
 
 
 
-  // 4) Render per-call actions based on status + flags
+  // HELPER RENDER FUNCTION: Returns JSX (looks like HTML but it's JavaScript XML)
+  // This keeps the main render clean by extracting complex UI logic into reusable pieces
+  // Called inside the main render for each call row: {renderActions(c)}
   const renderActions = (c: Call) => {
     const status = (c.status || "").toLowerCase();
     const isEnded = status === "ended";
@@ -360,7 +403,8 @@ const CallDashboard: React.FC = () => {
     );
   };
 
-  // 5) Main render
+  // RENDER FUNCTION: Returns JSX (HTML-like syntax) that React converts to DOM elements
+  // React re-renders this when state changes (calls, loading, error, etc.)
   return (
     <div className="min-h-screen flex flex-col items-center px-4 py-6">
       <div className="w-full max-w-6xl">
@@ -422,7 +466,7 @@ const CallDashboard: React.FC = () => {
                 <code className="bg-slate-100 px-1 py-0.5 rounded">
                   POST /api/debug/create-test-call/demo-client
                 </code>{" "}
-                or send real Vapi webhooks to populate this table.
+                or send real Vprod webhooks to populate this table.
               </p>
             )}
 
@@ -517,407 +561,7 @@ const CallDashboard: React.FC = () => {
 };
 
 
-type TranscriptModalProps = {
-  call: Call | null;
-  onClose: () => void;
-  onCallUpdated: (call: Call) => void;
-};
 
-const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose, onCallUpdated }) => {
-  const [fetching, setFetching] = useState(false);
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    if (!call) return;
-    if (call.detailsLoaded) return;
-    if (fetchedRef.current) return;
-
-    // Fetch full details
-    fetchedRef.current = true;
-    setFetching(true);
-    fetch(`${backendUrl}/api/calls/${call.id}`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to load details");
-        return res.json();
-      })
-      .then(data => {
-        // Merge backend data with existing call
-        // Backend returns snake_case keys usually, ensure mapping matches Call interface
-        const fullCall: Call = {
-          ...call,
-          ...data,
-          // Ensure fields map correctly if backend uses snake_case
-          live_transcript: data.live_transcript ?? data.liveTranscript,
-          final_transcript: data.final_transcript ?? data.finalTranscript,
-          summary: data.summary,
-          detailsLoaded: true
-        };
-        onCallUpdated(fullCall);
-      })
-      .catch(err => console.error("Failed to fetch call details", err))
-      .finally(() => setFetching(false));
-
-  }, [call, onCallUpdated]);
-
-  if (!call) return null;
-
-  const status = (call.status || "").toLowerCase();
-  const isEnded = status === "ended" || status === "completed";
-
-  // Prefer final transcript if ended; otherwise live transcript
-  let text = "";
-  if (isEnded && call.final_transcript) {
-    // For finished calls, always show FINAL transcript if we have it
-    text = call.final_transcript;
-  } else if (call.live_transcript) {
-    // For active calls, prefer live transcript
-    text = call.live_transcript;
-  } else if (call.final_transcript) {
-    // Fallback: if only final exists
-    text = call.final_transcript;
-  }
-
-  // Also showing summary if available
-  const summaryText = call.summary?.summary;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-2xl bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[80vh]">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              Transcript – <span className="font-mono text-xs">{call.id}</span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              {call.phone_number || "Unknown number"} · Status:{" "}
-              <span className="font-medium">{call.status || "unknown"}</span>
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            Close
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-4 py-3 flex-1 overflow-auto space-y-4">
-          {fetching && (
-            <div className="text-xs text-slate-500 italic">Loading full transcript...</div>
-          )}
-
-          {/* Summary Section */}
-          {summaryText && (
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-              <h4 className="text-xs font-semibold text-blue-900 mb-1">Summary</h4>
-              <p className="text-xs text-blue-800 leading-relaxed">{summaryText}</p>
-            </div>
-          )}
-
-          {text ? (
-            <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono bg-slate-50 rounded-lg p-3 border border-slate-200">
-              {text}
-            </pre>
-          ) : (
-            !fetching && (
-              <p className="text-sm text-slate-500">
-                No transcript available yet for this call.
-              </p>
-            )
-          )}
-
-        </div>
-
-        {/* Footer (optional) */}
-        <div className="px-4 py-2 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-[11px] text-slate-400">
-            Live transcript updates will appear here automatically while the call is active.
-          </span>
-          <button
-            onClick={onClose}
-            className="text-xs px-2.5 py-1 rounded-md bg-slate-900 text-white hover:bg-slate-800"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-type ListenModalProps = {
-  call: Call | null;
-  onClose: () => void;
-};
-
-const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
-  const [wsStatus, setWsStatus] = React.useState<
-    "idle" | "connecting" | "open" | "closed" | "error"
-  >("idle");
-  const [bytesReceived, setBytesReceived] = React.useState<number>(0);
-  const [audioError, setAudioError] = React.useState<string | null>(null);
-  // NEW: keeps track of where in the AudioContext timeline
-  // the *next* chunk should be scheduled.
-  const playHeadRef = React.useRef<number | null>(null);
-
-  // Effect: open WebSocket to call.listen_url and play audio
-  React.useEffect(() => {
-    if (!call || !call.has_listen_url) {
-      setWsStatus("error");
-      setAudioError("No listen URL available for this call.");
-      return;
-    }
-
-    console.log("[ListenModal] Connecting to listenUrl for:", call.id);
-
-    const AudioCtx =
-      (window as any).AudioContext || (window as any).webkitAudioContext;
-
-    if (!AudioCtx) {
-      setWsStatus("error");
-      setAudioError("Web Audio API is not supported in this browser.");
-      return;
-    }
-
-    // Vapi default PCM WS = 16kHz, 16-bit, mono
-    const SAMPLE_RATE = 32000;
-
-    const audioCtx = new AudioCtx({ sampleRate: SAMPLE_RATE });
-    playHeadRef.current = null; // reset playhead for this session
-
-    // --- NEW: audio processing nodes ---
-    // Gentle low-pass filter to tame harsh highs
-    const filterNode = audioCtx.createBiquadFilter();
-    filterNode.type = "lowpass";
-    // You can experiment: 5000–8000 Hz. Start with 6000:
-    filterNode.frequency.value = 6000;
-    filterNode.Q.value = 0.7;
-
-    // Slight gain reduction to avoid harshness/clipping
-    const gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0.8;
-
-    // Connect processing chain to destination once
-    filterNode.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    let totalBytes = 0;
-    let ws: WebSocket | null = null;
-
-    setWsStatus("connecting");
-
-    try {
-      // Use backend proxy instead of direct VAPI URL
-      const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}`;
-      console.log("[ListenModal] Connecting to proxy:", wsUrl);
-      ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-    } catch (err) {
-      console.error("[ListenModal] Failed to open WS:", err);
-      setWsStatus("error");
-      setAudioError("Failed to open WebSocket connection.");
-      audioCtx.close();
-      return;
-    }
-
-    ws.onopen = async () => {
-      console.log("[ListenModal] WS open");
-      setWsStatus("open");
-      try {
-        await audioCtx.resume();
-      } catch (e) {
-        console.warn("[ListenModal] audioCtx.resume() failed:", e);
-      }
-    };
-
-    ws.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        // Text frame (metadata)
-        try {
-          const msg = JSON.parse(event.data);
-          console.log("[ListenModal] text frame:", msg);
-        } catch {
-          console.log("[ListenModal] text frame (raw):", event.data);
-        }
-        return;
-      }
-
-      // ---- Binary audio frame ----
-      const buf = event.data as ArrayBuffer;
-      const int16 = new Int16Array(buf);
-
-      totalBytes += buf.byteLength;
-      setBytesReceived(totalBytes);
-
-      try {
-        const frameCount = int16.length;
-        const audioBuffer = audioCtx.createBuffer(
-          1,           // mono
-          frameCount,  // number of frames
-          SAMPLE_RATE
-        );
-
-        const channelData = audioBuffer.getChannelData(0);
-        for (let i = 0; i < frameCount; i++) {
-          channelData[i] = int16[i] / 32768; // 16-bit PCM -> float
-        }
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(filterNode);
-
-        // ---- Smooth scheduling: queue chunks back-to-back ----
-        const now = audioCtx.currentTime;
-        if (playHeadRef.current === null || playHeadRef.current < now) {
-          // first chunk or we've fallen behind → start from "now"
-          playHeadRef.current = now;
-        }
-
-        const startTime = playHeadRef.current;
-        const duration = audioBuffer.duration;
-
-        // Schedule this chunk
-        source.start(startTime);
-
-        // Advance playhead for next chunk
-        playHeadRef.current = startTime + duration;
-      } catch (e) {
-        console.error("[ListenModal] Error decoding/playing audio:", e);
-        setAudioError("Error while decoding or playing audio.");
-      }
-    };
-
-    ws.onerror = (ev) => {
-      console.error("[ListenModal] WS error:", ev);
-      setWsStatus("error");
-    };
-
-    ws.onclose = () => {
-      console.log("[ListenModal] WS closed");
-      setWsStatus("closed");
-    };
-
-
-    return () => {
-      console.log("[ListenModal] cleanup → closing WS + AudioContext");
-      try {
-        ws && ws.close();
-      } catch { }
-      try {
-        filterNode.disconnect();
-        gainNode.disconnect();
-      } catch { }
-      try {
-        audioCtx.close();
-      } catch { }
-      playHeadRef.current = null;
-    };
-
-  }, [call?.id, call?.has_listen_url]);
-
-
-  if (!call) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[80vh]">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              Listening –{" "}
-              <span className="font-mono text-xs">{call.id}</span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              {call.phone_number || "Unknown number"} · Status:{" "}
-              <span className="font-medium">{call.status || "unknown"}</span>
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            Close
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-4 py-3 flex-1 space-y-3 text-sm text-slate-700">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500">WebSocket status:</span>
-            <span className="text-xs font-mono">
-              {wsStatus} {bytesReceived > 0 && `· ${bytesReceived} bytes`}
-            </span>
-          </div>
-
-          {audioError && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-              {audioError}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-slate-100 flex justify-end">
-          <button
-            onClick={onClose}
-            className="text-xs px-2.5 py-1 rounded-md bg-slate-900 text-white hover:bg-slate-800"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-
-
-
-type RecordingModalProps = {
-  call: Call | null;
-  onClose: () => void;
-};
-
-const RecordingModal: React.FC<RecordingModalProps> = ({ call, onClose }) => {
-  if (!call || !call.recording_url) return null;
-
-  // If the URL is relative, prepend backendUrl. 
-  // If it's absolute (starts with http), leave it.
-  const isAbsolute = call.recording_url.startsWith("http");
-  const src = isAbsolute
-    ? call.recording_url
-    : `${backendUrl}${call.recording_url.startsWith("/") ? "" : "/"}${call.recording_url}`;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">
-            Recording – <span className="font-mono text-xs">{call.id}</span>
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="flex flex-col items-center gap-4 py-4">
-          <audio controls autoPlay src={src} className="w-full" />
-          <p className="text-xs text-slate-500 break-all text-center">
-            {src}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const StatusBadge: React.FC<{ status?: string | null }> = ({ status }) => {
   const s = (status || "").toLowerCase();

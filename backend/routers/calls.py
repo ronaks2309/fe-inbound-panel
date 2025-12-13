@@ -1,18 +1,50 @@
 
+
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from database.connection import get_session
 from database.models import Call, CallStatusEvent
 from services.call_service import CallService
 import httpx
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
 
 router = APIRouter()
 
-@router.get("/api/{client_id}/calls")
-def list_calls(client_id: str, session: Session = Depends(get_session)):
+
+# Response Models for API clarity and validation
+class CallListResponse(BaseModel):
+    """Response model for call list endpoint - excludes heavy fields for performance"""
+    id: str
+    client_id: str
+    phone_number: Optional[str] = None
+    status: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    cost: Optional[float] = None
+    recording_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    # Computed boolean flags (not in DB model)
+    hasListenUrl: bool
+    hasLiveTranscript: bool
+    hasFinalTranscript: bool
+
+
+class CallDetailResponse(CallListResponse):
+    """Response model for single call endpoint - includes full transcript and summary"""
+    live_transcript: Optional[str] = None
+    final_transcript: Optional[str] = None
+    summary: Optional[dict] = None
+
+
+@router.get("/api/{client_id}/calls", response_model=List[CallListResponse])
+def listCalls(client_id: str, session: Session = Depends(get_session)):
     """
     List calls for a specific client.
-    Masks sensitive internal URLs for privacy.
+    Returns lightweight call summaries without heavy transcript/summary fields.
     """
     stmt = (
         select(Call)
@@ -20,47 +52,66 @@ def list_calls(client_id: str, session: Session = Depends(get_session)):
         .order_by(Call.created_at.desc())
     )
     calls = session.exec(stmt).all()
-    # Mask sensitive fields to prevent leak
-    public_calls = []
-    for c in calls:
-        c_dict = c.model_dump()
-        c_dict["hasListenUrl"] = bool(c.listen_url)
-        
-        # Compute if we have a transcript BEFORE removing the fields
-        c_dict["hasLiveTranscript"] = bool(c.live_transcript)
-        c_dict["hasFinalTranscript"] = bool(c.final_transcript)
-        
-        # Exclude heavy fields for list view
-        c_dict.pop("listen_url", None)
-        c_dict.pop("control_url", None)
-        c_dict.pop("live_transcript", None)
-        c_dict.pop("final_transcript", None)
-        c_dict.pop("summary", None)
-        public_calls.append(c_dict)
-    return public_calls
+    
+    # Build response list with explicit fields
+    response = [
+        CallListResponse(
+            # Explicitly include only the fields we want
+            id=c.id,
+            client_id=c.client_id,
+            phone_number=c.phone_number,
+            status=c.status,
+            started_at=c.started_at,
+            ended_at=c.ended_at,
+            cost=c.cost,
+            recording_url=c.recording_url,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+            # Computed flags
+            hasListenUrl=bool(c.listen_url),
+            hasLiveTranscript=bool(c.live_transcript),
+            hasFinalTranscript=bool(c.final_transcript),
+        )
+        for c in calls
+    ]
+    
+    return response
 
 
-@router.get("/api/calls/{call_id}")
-def get_call(call_id: str, session: Session = Depends(get_session)):
+@router.get("/api/calls/{call_id}", response_model=CallDetailResponse)
+def detailCall(call_id: str, session: Session = Depends(get_session)):
     """
     Get full details for a single call.
-    Masks sensitive internal URLs.
+    Includes complete transcript and summary data.
     """
     call = session.get(Call, call_id)
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
     
-    # Return full details including transcript/summary
-    # But still mask sensitive internal URLs if needed, or proxy them.
-    # For now, just scrubbing listen/control URL properties directly
-    # and using hasListenUrl is consistent.
+    # Build response with explicit fields
+    response = CallDetailResponse(
+        # Explicitly include all fields we want to return
+        id=call.id,
+        client_id=call.client_id,
+        phone_number=call.phone_number,
+        status=call.status,
+        started_at=call.started_at,
+        ended_at=call.ended_at,
+        cost=call.cost,
+        recording_url=call.recording_url,
+        created_at=call.created_at,
+        updated_at=call.updated_at,
+        # Heavy fields (included for detail view)
+        live_transcript=call.live_transcript,
+        final_transcript=call.final_transcript,
+        summary=call.summary,
+        # Computed flags
+        hasListenUrl=bool(call.listen_url),
+        hasLiveTranscript=bool(call.live_transcript),
+        hasFinalTranscript=bool(call.final_transcript),
+    )
     
-    c_dict = call.model_dump()
-    c_dict["hasListenUrl"] = bool(call.listen_url)
-    c_dict.pop("listen_url", None)
-    c_dict.pop("control_url", None)
-    
-    return c_dict
+    return response
 
 
 @router.post("/api/{client_id}/calls/{call_id}/force-transfer")
