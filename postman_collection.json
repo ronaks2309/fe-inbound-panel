@@ -1,14 +1,23 @@
 {
   "info": {
-    "name": "VAPI Inbound Call Dashboard",
+    "name": "VPROD Inbound Call Dashboard",
     "_postman_id": "6a7c2b71-0a0e-4a30-9d0d-6b8d2c9b0001",
     "description": "FastAPI backend for the inbound call dashboard. Includes health, calls, force-transfer, webhooks, and debug utilities.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8000" },
-    { "key": "client_id", "value": "demo-client" },
-    { "key": "call_id", "value": "call-xyz-1" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "client_id",
+      "value": "demo-client"
+    },
+    {
+      "key": "call_id",
+      "value": "call-xyz-1"
+    }
   ],
   "item": [
     {
@@ -16,7 +25,15 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] }
+        "url": {
+          "raw": "{{baseUrl}}/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            ""
+          ]
+        }
       }
     },
     {
@@ -24,7 +41,15 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
       }
     },
     {
@@ -34,8 +59,14 @@
         "header": [],
         "url": {
           "raw": "{{baseUrl}}/api/{{client_id}}/calls",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "{{client_id}}", "calls"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "{{client_id}}",
+            "calls"
+          ]
         }
       }
     },
@@ -43,15 +74,64 @@
       "name": "Calls - Force Transfer",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"agent_phone_number\": \"+16504848853\",\n  \"content\": \"Transferring your call now\"\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/{{client_id}}/calls/{{call_id}}/force-transfer",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "{{client_id}}", "calls", "{{call_id}}", "force-transfer"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "{{client_id}}",
+            "calls",
+            "{{call_id}}",
+            "force-transfer"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Calls - Get Detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/calls/{{call_id}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "calls",
+            "{{call_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Calls - Get Recording",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/recordings/sample.mp3",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "recordings",
+            "sample.mp3"
+          ]
         }
       }
     },
@@ -59,15 +139,26 @@
       "name": "Webhook - status-update",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"message\": {\n    \"type\": \"status-update\",\n    \"status\": \"in-progress\",\n    \"call\": {\n      \"id\": \"{{call_id}}\",\n      \"phoneNumber\": \"+18005550123\",\n      \"listenUrl\": \"wss://example.com/listen/{{call_id}}\",\n      \"controlUrl\": \"https://example.com/control/{{call_id}}\"\n    }\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["webhooks", "vapi", "{{client_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "webhooks",
+            "vapi",
+            "{{client_id}}"
+          ]
         }
       }
     },
@@ -75,15 +166,26 @@
       "name": "Webhook - transcript",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"message\": {\n    \"type\": \"transcript\",\n    \"transcript\": \"Customer: I have a billing question\",\n    \"call\": { \"id\": \"{{call_id}}\" }\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["webhooks", "vapi", "{{client_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "webhooks",
+            "vapi",
+            "{{client_id}}"
+          ]
         }
       }
     },
@@ -91,15 +193,26 @@
       "name": "Webhook - end-of-call-report",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"message\": {\n    \"type\": \"end-of-call-report\",\n    \"endedReason\": \"customer_hangup\",\n    \"call\": { \"id\": \"{{call_id}}\" },\n    \"artifact\": {\n      \"recording\": { \"url\": \"https://example.com/recordings/{{call_id}}.mp3\" },\n      \"transcript\": \"Full transcript text...\",\n      \"messages\": [ { \"role\": \"user\", \"content\": \"...\" } ]\n    }\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/webhooks/vapi/{{client_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["webhooks", "vapi", "{{client_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "webhooks",
+            "vapi",
+            "{{client_id}}"
+          ]
         }
       }
     },
@@ -107,15 +220,27 @@
       "name": "Debug - Create/Update Test Call",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"call_id\": \"{{call_id}}\",\n  \"phone_number\": \"+18885550111\",\n  \"status\": \"ringing\",\n  \"event_payload\": { \"source\": \"postman\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/debug/create-test-call/{{client_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "debug", "create-test-call", "{{client_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "debug",
+            "create-test-call",
+            "{{client_id}}"
+          ]
         }
       }
     },
@@ -123,15 +248,28 @@
       "name": "Debug - Log Status Event",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"status\": \"in-progress\",\n  \"payload\": { \"note\": \"manual event from Postman\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/debug/log-status-event/{{client_id}}/{{call_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "debug", "log-status-event", "{{client_id}}", "{{call_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "debug",
+            "log-status-event",
+            "{{client_id}}",
+            "{{call_id}}"
+          ]
         }
       }
     },
@@ -142,8 +280,16 @@
         "header": [],
         "url": {
           "raw": "{{baseUrl}}/api/debug/status-events/{{client_id}}/{{call_id}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "debug", "status-events", "{{client_id}}", "{{call_id}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "debug",
+            "status-events",
+            "{{client_id}}",
+            "{{call_id}}"
+          ]
         }
       }
     }

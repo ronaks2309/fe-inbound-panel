@@ -20,6 +20,7 @@ flowchart TD
     UI[CallDashboard]
     LModal[ListenModal]
     TModal[TranscriptModal]
+    RModal[RecordingModal]
   end
 
   WB --> API

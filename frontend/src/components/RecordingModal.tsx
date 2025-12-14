@@ -28,13 +28,15 @@ type RecordingModalProps = {
 export const RecordingModal: React.FC<RecordingModalProps> = ({ call, onClose }) => {
     if (!call || !call.recording_url) return null;
 
+    // Always assume relative URL and prepend backendUrl
+    const src = `${backendUrl}${call.recording_url}`;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col">
-                {/* Header */}
-                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col p-4">
+                <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-900">
-                        Call Recording
+                        Recording – <span className="font-mono text-xs">{call.id}</span>
                     </h3>
                     <button
                         onClick={onClose}
@@ -44,12 +46,11 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({ call, onClose })
                     </button>
                 </div>
 
-                {/* Body */}
-                <div className="px-4 py-3">
-                    <audio controls className="w-full">
-                        <source src={call.recording_url} type="audio/mpeg" />
-                        Your browser does not support the audio element.
-                    </audio>
+                <div className="flex flex-col items-center gap-4 py-4">
+                    <audio controls autoPlay src={src} className="w-full" />
+                    <p className="text-xs text-slate-500 break-all text-center">
+                        {src}
+                    </p>
                 </div>
             </div>
         </div>

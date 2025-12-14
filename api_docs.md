@@ -15,6 +15,7 @@ Auth: none (development). Add auth + tenant isolation + tighter CORS for product
 ### List Calls
 - `GET /api/{client_id}/calls`
 - Returns calls ordered by `created_at` descending (used by the dashboard bootstrap).
+- **Response Model**: `CallListResponse` (lightweight, excludes transcripts/summary)
 - Response (example):
 ```json
 [
@@ -25,14 +26,41 @@ Auth: none (development). Add auth + tenant isolation + tighter CORS for product
     "status": "in-progress",
     "started_at": "2025-12-10T07:05:14.195889",
     "ended_at": null,
-    "listen_url": null,
-    "control_url": null,
-    "live_transcript": null,
-    "final_transcript": null,
-    "recording_url": null
+    "cost": null,
+    "recording_url": null,
+    "created_at": "2025-12-10T07:05:14.195889",
+    "updated_at": "2025-12-10T07:05:14.195889",
+    "hasListenUrl": false,
+    "hasLiveTranscript": false,
+    "hasFinalTranscript": false
   }
 ]
 ```
+
+### Get Call Details
+- `GET /api/calls/{call_id}`
+- Returns full call details including transcripts and summary.
+- **Response Model**: `CallDetailResponse`
+- Response (example):
+```json
+{
+  "id": "debug-1765332952",
+  "client_id": "demo-client",
+  "phone_number": "+15555550123",
+  "status": "ended",
+  "live_transcript": "Hello...",
+  "final_transcript": "Hello there, how can I help?",
+  "summary": { "summary": "Call about billing..." },
+  "hasListenUrl": false,
+  "hasLiveTranscript": true,
+  "hasFinalTranscript": true
+}
+```
+
+### Get Recording
+- `GET /api/recordings/{filename}`
+- serves the audio file from the local `recordings/` directory.
+
 
 ### Force Transfer a Live Call
 - `POST /api/{client_id}/calls/{call_id}/force-transfer`

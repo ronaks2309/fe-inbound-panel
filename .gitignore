@@ -13,8 +13,8 @@ env.bak/
 venv.bak/
 
 # Database
-call_dashboard.db
-*.sqlite3
+# call_dashboard.db
+# *.sqlite3
 
 # Node
 node_modules/

@@ -35,6 +35,7 @@ export type Call = {
 
   hasTranscript?: boolean;
   hasLiveTranscript?: boolean;
+  hasFinalTranscript?: boolean;  // Flag from backend
   hasRecording?: boolean;
   recording_url?: string | null;
 
@@ -89,7 +90,8 @@ const CallDashboard: React.FC = () => {
           has_listen_url: c.hasListenUrl ?? false,
 
           hasTranscript: c.hasTranscript ?? false, // Normalized from backend
-          hasLiveTranscript: !!c.live_transcript, // will be missing initially
+          hasLiveTranscript: c.hasLiveTranscript ?? !!c.live_transcript,
+          hasFinalTranscript: c.hasFinalTranscript ?? !!c.final_transcript, // NEW: from backend
           hasRecording: !!c.recording_url,
 
           recording_url: c.recording_url ?? c.recordingUrl ?? null,
@@ -353,7 +355,7 @@ const CallDashboard: React.FC = () => {
           </button>
           <button
             className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-            disabled={!c.hasTranscript && !c.hasLiveTranscript}
+            disabled={!c.hasFinalTranscript && !c.hasLiveTranscript}
             onClick={() => {
               console.log("View Transcript clicked for", c.id);
               setTranscriptModalCallId(c.id);

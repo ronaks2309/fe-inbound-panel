@@ -123,6 +123,7 @@ class CallService:
                 "endedAt": call.ended_at.isoformat() if call.ended_at else None,
                 "hasListenUrl": bool(call.listen_url),
                 "hasTranscript": bool(call.final_transcript),
+                "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
             }
@@ -233,6 +234,7 @@ class CallService:
                     "endedAt": call.ended_at.isoformat() if call.ended_at else None,
                     "hasListenUrl": bool(call.listen_url),
                     "hasTranscript": bool(call.final_transcript),
+                    "hasFinalTranscript": bool(call.final_transcript),
                     "hasLiveTranscript": True,
                     "hasRecording": bool(call.recording_url),
                 }
@@ -377,6 +379,7 @@ class CallService:
                 "liveTranscript": call.live_transcript,
                 "recordingUrl": call.recording_url,
                 "hasTranscript": bool(call.final_transcript),
+                "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
             }
