@@ -198,7 +198,7 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
 
 ## Architecture (Mermaid)
 ### High-level components
-`mermaid
+```mermaid
 flowchart TD
   subgraph VAPI
     WB[VAPI webhook]\nPOST /webhooks
@@ -226,10 +226,10 @@ flowchart TD
   UI --> WS
   LModal --> LS
   UI --> CTL
-`
+```
 
 ### Status update flow
-`mermaid
+```mermaid
 sequenceDiagram
   participant V as VAPI
   participant B as Backend
@@ -242,10 +242,10 @@ sequenceDiagram
   B-->>W: broadcast call-upsert
   W-->>F: call-upsert
   F->>F: insert/update row
-`
+```
 
 ### Transcript + end-of-call flow
-`mermaid
+```mermaid
 sequenceDiagram
   participant V as VAPI
   participant B as Backend
@@ -262,10 +262,10 @@ sequenceDiagram
   B->>DB: Set status=ended, final_transcript, recording_url, summary
   B-->>W: broadcast call-upsert (final flags)
   W-->>F: render ended state (recording/transcript buttons)
-`
+```
 
 ### Force transfer flow
-`mermaid
+```mermaid
 sequenceDiagram
   participant F as Frontend
   participant B as Backend
@@ -275,7 +275,7 @@ sequenceDiagram
   B->>V: POST controlUrl {type:"transfer", destination:{type:"number", number}}
   B->>B: Log CallStatusEvent(status="force-transfer")
   B-->>F: {ok:true, control_url, forwarded_to}
-`
+```
 
 ## Suggested Next Steps
 - Add auth + tenant scoping for all routes and WebSockets, and tighten CORS.
