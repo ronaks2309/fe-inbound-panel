@@ -1,9 +1,11 @@
-
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 export const LandingPage = () => {
+    const [showPreview, setShowPreview] = useState(false)
+
     return (
-        <div className="bg-white min-h-screen flex flex-col">
+        <div className="bg-white min-h-screen flex flex-col relative">
             {/* Header */}
             <header className="w-full py-6 px-8 flex justify-between items-center max-w-7xl mx-auto">
                 <div className="text-2xl font-bold text-blue-600">VoxFlow</div>
@@ -34,17 +36,17 @@ export const LandingPage = () => {
                             Compliance-first AI voice agents designed for Life and Health Insurance - qualifying leads, asking the right questions, and handing off to licensed agents with confidence.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4">
-                            <Link
-                                to="/login"
-                                className="bg-blue-600 text-white px-8 py-4 rounded-full text-lg font-bold hover:bg-blue-700 transition shadow-lg flex items-center justify-center gap-2"
+                            <button
+                                onClick={() => setShowPreview(true)}
+                                className="bg-blue-600 text-white px-8 py-4 rounded-full text-lg font-bold hover:bg-blue-700 transition shadow-lg flex items-center justify-center gap-2 cursor-pointer"
                             >
                                 See It in Action
-                            </Link>
+                            </button>
                             <Link
-                                to="#"
+                                to="/dashboard"
                                 className="bg-gray-100 text-gray-700 px-8 py-4 rounded-full text-lg font-bold hover:bg-gray-200 transition shadow-sm flex items-center justify-center gap-2"
                             >
-                                How It Works
+                                Access Dashboard
                             </Link>
                         </div>
                         <p className="text-sm text-gray-500 font-medium">
@@ -132,6 +134,51 @@ export const LandingPage = () => {
             <footer className="bg-gray-50 py-8 text-center text-gray-500 text-sm">
                 © {new Date().getFullYear()} VoxFlow Dashboard. All rights reserved.
             </footer>
+
+            {/* Preview Modal */}
+            {showPreview && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowPreview(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900">Feature Preview</h3>
+                                <p className="text-sm text-gray-500">Supervisor Dashboard & Live Monitor</p>
+                            </div>
+                            <button
+                                onClick={() => setShowPreview(false)}
+                                className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-200 rounded-full transition"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="p-8 flex flex-col items-center text-center space-y-6">
+                            <div className="space-y-2">
+                                <h4 className="text-2xl font-bold text-gray-900">More Details Coming Soon</h4>
+                                <p className="text-gray-600 max-w-md mx-auto">
+                                    We're putting the finishing touches on our advanced analytics and agent supervision tools. Here's a sneak peek at what's coming.
+                                </p>
+                            </div>
+
+                            <div className="relative w-full rounded-xl overflow-hidden shadow-lg border border-gray-200 bg-gray-50">
+                                <img
+                                    src="/dashboard-preview.png"
+                                    alt="Dashboard Preview"
+                                    className="w-full h-auto object-cover"
+                                />
+                            </div>
+
+                            <button
+                                onClick={() => setShowPreview(false)}
+                                className="bg-gray-900 text-white px-6 py-2 rounded-lg font-medium hover:bg-gray-800 transition"
+                            >
+                                Got it
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
