@@ -63,7 +63,7 @@ class CallService:
         call_id = call_data.get("id")
         
         if not call_id:
-            print("[VProd][status-update] Missing call.id, ignoring.")
+            print("[VoxFlow][status-update] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract phone number from various possible fields
@@ -152,7 +152,7 @@ class CallService:
         call_data = message.get("call", {})
         call_id = call_data.get("id")
         if not call_id:
-            print("[Vprod][transcript] Missing call.id, ignoring.")
+            print("[VoxFlow][transcript] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         raw_text = (message.get("transcript"))
@@ -262,7 +262,7 @@ class CallService:
         call_data = message.get("call", {}) or {}
         call_id = call_data.get("id")
         if not call_id:
-            print("[Vprod][end-of-call-report] Missing call.id, ignoring.")
+            print("[VoxFlow][end-of-call-report] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract call info
@@ -407,7 +407,7 @@ class CallService:
         call_data = message.get("call", {})
         call_id = call_data.get("id")
         if not call_id:
-            print("[Vprod][generic] Missing call.id. Just logging payload.")
+            print("[VoxFlow][generic] Missing call.id. Just logging payload.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract call info from various possible field names

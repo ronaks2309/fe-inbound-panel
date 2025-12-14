@@ -35,5 +35,5 @@ async def vprod_server_webhook(
         return await CallService.handle_end_of_call_report(client_id, message, payload, session)
 
     # Fallback: unknown type -> just log payload
-    print(f"\n[Vprod] Unknown message.type='{msg_type}', logging as generic event.")
+    print(f"\n[VoxFlow] Unknown message.type='{msg_type}', logging as generic event.")
     return await CallService.handle_generic_event(client_id, message, payload, session)
