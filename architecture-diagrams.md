@@ -4,9 +4,9 @@
 ```mermaid
 flowchart TD
   subgraph VAPI
-    WB[Vapi webhook\nPOST /webhooks/vapi/{client_id}]
-    LS[listenUrl WS\n(binary PCM)]
-    CTL[controlUrl\nHTTP POST]
+    WB["Vapi webhook\nPOST /webhooks/vapi/client_id"]
+    LS["listenUrl WS\n(binary PCM)"]
+    CTL["controlUrl\nHTTP POST"]
   end
 
   subgraph Backend[FastAPI]
@@ -43,7 +43,7 @@ sequenceDiagram
   participant W as WS /ws/dashboard
   participant F as Frontend
 
-  V->>B: POST /webhooks/vapi/{client_id}\n{type:"status-update", call.id, status, listenUrl, controlUrl}
+  V->>B: POST /webhooks/vapi/client_id\n(status-update, call.id, status, listenUrl, controlUrl)
   B->>DB: Upsert Call + CallStatusEvent
   B-->>W: broadcast call-upsert
   W-->>F: call-upsert
@@ -59,7 +59,7 @@ sequenceDiagram
   participant W as WS /ws/dashboard
   participant F as Frontend
 
-  V->>B: POST /webhooks/vapi/{client_id}\n{type:"transcript", transcript, call.id}
+  V->>B: POST /webhooks/vapi/client_id\n(transcript, transcript, call.id)
   B->>DB: Append Call.live_transcript + CallStatusEvent
   B-->>W: broadcast transcript-update
   W-->>F: transcript-update
@@ -75,8 +75,8 @@ sequenceDiagram
   participant W as WS /ws/dashboard
   participant F as Frontend
 
-  V->>B: POST /webhooks/vapi/{client_id}\n{type:"end-of-call-report", artifact.recording, artifact.transcript, call.id}
-  B->>DB: Set status=ended, ended_at, final_transcript, recording_url, summary; log CallStatusEvent
+  V->>B: POST /webhooks/vapi/client_id\n(end-of-call-report, artifact.recording, artifact.transcript, call.id)
+  B->>DB: Set status=ended, ended_at, final_transcript, recording_url, summary & log CallStatusEvent
   B-->>W: broadcast call-upsert (hasTranscript/hasRecording flags)
   W-->>F: call-upsert
   F->>F: render ended state (recording/transcript actions)

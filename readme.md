@@ -201,9 +201,9 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
 ```mermaid
 flowchart TD
   subgraph VAPI
-    WB[VAPI webhook]\nPOST /webhooks
-    LS[listenUrl WS]
-    CTL[controlUrl HTTP]
+    WB["VAPI webhook\nPOST /webhooks"]
+    LS["listenUrl WS"]
+    CTL["controlUrl HTTP"]
   end
 
   subgraph Backend[FastAPI]
