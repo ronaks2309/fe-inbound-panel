@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "VoxFlow Inbound Call Dashboard",
+    "name": "CallMark AI Inbound Call Dashboard",
     "_postman_id": "6a7c2b71-0a0e-4a30-9d0d-6b8d2c9b0001",
     "description": "FastAPI backend for the inbound call dashboard. Includes health, calls, force-transfer, webhooks, and debug utilities.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"

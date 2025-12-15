@@ -45,7 +45,7 @@ async def fake_audio_websocket(ws: WebSocket):
 @router.websocket("/ws/listen/{call_id}")
 async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Session = Depends(get_session)):
     """
-    Proxies audio from an upstream VoxFlow listenUrl to the client.
+    Proxies audio from an upstream CallMark AI listenUrl to the client.
     Hides the upstream URL from the client.
     """
     await websocket.accept()

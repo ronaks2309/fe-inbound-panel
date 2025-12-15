@@ -8,7 +8,7 @@ export const LandingPage = () => {
         <div className="bg-white min-h-screen flex flex-col relative">
             {/* Header */}
             <header className="w-full py-6 px-8 flex justify-between items-center max-w-7xl mx-auto">
-                <div className="text-2xl font-bold text-blue-600">VoxFlow</div>
+                <div className="text-2xl font-bold text-blue-600">CallMark AI</div>
                 <nav>
                     <Link to="/login" className="text-gray-600 hover:text-gray-900 font-medium px-4">
                         Sign In
@@ -132,7 +132,7 @@ export const LandingPage = () => {
 
             {/* Simple Footer */}
             <footer className="bg-gray-50 py-8 text-center text-gray-500 text-sm">
-                © {new Date().getFullYear()} VoxFlow Dashboard. All rights reserved.
+                © {new Date().getFullYear()} CallMark AI Dashboard. All rights reserved.
             </footer>
 
             {/* Preview Modal */}
