@@ -122,7 +122,7 @@ async def force_transfer_call(
     session: Session = Depends(get_session),
 ):
     """
-    Force-transfer a live vprod call to a human agent using the call's control_url.
+    Force-transfer a live CallMark AI call to a human agent using the call's control_url.
 
     Expected body:
     {
