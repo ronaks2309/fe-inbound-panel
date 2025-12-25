@@ -21,6 +21,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { TranscriptModal } from "./TranscriptModal";
 import { ListenModal } from "./ListenModal";
 import { RecordingModal } from "./RecordingModal";
+import { supabase } from "../lib/supabase";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -59,6 +60,7 @@ const CallDashboard: React.FC = () => {
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
   // Perfect for storing WebSocket connections, timers, or DOM references
@@ -113,6 +115,15 @@ const CallDashboard: React.FC = () => {
     }
 
     loadCalls();
+  }, []);
+
+  // EFFECT: Load user email
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) {
+        setUserEmail(user.email);
+      }
+    });
   }, []);
 
   // HELPER FUNCTION: Upsert (update or insert) a call from WebSocket payload
@@ -419,6 +430,11 @@ const CallDashboard: React.FC = () => {
             <p className="text-sm text-slate-500">
               Client: <span className="font-mono">demo-client</span>
             </p>
+            {userEmail && (
+              <p className="text-sm text-slate-500">
+                Welcome: <span className="font-medium text-slate-700">{userEmail}</span>
+              </p>
+            )}
           </div>
           <div className="text-xs text-slate-400">
             Backend:{" "}
