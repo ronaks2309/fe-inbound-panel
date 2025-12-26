@@ -1,7 +1,7 @@
 
 # models.py
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import JSON
 from typing import Optional
 from datetime import datetime
 from sqlalchemy import func

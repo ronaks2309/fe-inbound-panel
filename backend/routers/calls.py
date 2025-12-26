@@ -6,11 +6,21 @@ from database.connection import get_session
 from database.models import Call, CallStatusEvent
 from services.call_service import CallService
 import httpx
+import os
 from pydantic import BaseModel
+from services.supabase_service import supabase
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
+
+def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Ensure datetime is timezone-aware UTC. If naive, assume UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 # Response Models for API clarity and validation
@@ -68,15 +78,15 @@ def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = 
             client_id=c.client_id,
             phone_number=c.phone_number,
             status=c.status,
-            started_at=c.started_at,
-            ended_at=c.ended_at,
+            started_at=ensure_utc(c.started_at),
+            ended_at=ensure_utc(c.ended_at),
             cost=c.cost,
             user_id=c.user_id,
             username=c.username,
             duration=c.duration,
             recording_url=c.recording_url,
-            created_at=c.created_at,
-            updated_at=c.updated_at,
+            created_at=ensure_utc(c.created_at),
+            updated_at=ensure_utc(c.updated_at),
             # Computed flags
             hasListenUrl=bool(c.listen_url),
             hasLiveTranscript=bool(c.live_transcript),
@@ -105,15 +115,15 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
         client_id=call.client_id,
         phone_number=call.phone_number,
         status=call.status,
-        started_at=call.started_at,
-        ended_at=call.ended_at,
+        started_at=ensure_utc(call.started_at),
+        ended_at=ensure_utc(call.ended_at),
         cost=call.cost,
         user_id=call.user_id,
         username=call.username,
         duration=call.duration,
         recording_url=call.recording_url,
-        created_at=call.created_at,
-        updated_at=call.updated_at,
+        created_at=ensure_utc(call.created_at),
+        updated_at=ensure_utc(call.updated_at),
         # Heavy fields (included for detail view)
         live_transcript=call.live_transcript,
         final_transcript=call.final_transcript,
@@ -216,3 +226,43 @@ async def force_transfer_call(
         "forwarded_to": agent_phone,
         #"control_url": call.control_url,
     }
+
+
+@router.get("/api/calls/{call_id}/recording")
+def get_call_recording(call_id: str, session: Session = Depends(get_session)):
+    """
+    Get a secure, temporary signed URL for the call recording.
+    """
+    call = session.get(Call, call_id)
+    if not call or not call.recording_url:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    # If it's already an absolute URL (use it as is)
+    if call.recording_url.startswith("http"):
+        return {"url": call.recording_url}
+
+    # Otherwise, generate signed URL
+    if not supabase:
+         raise HTTPException(status_code=503, detail="Supabase client not configured")
+         
+    try:
+        bucket = os.getenv("SUPABASE_BUCKET", "recordings")
+        
+        # NOTE: create_signed_url returns a dict {signedURL: ...} in many versions
+        res = supabase.storage.from_(bucket).create_signed_url(call.recording_url, 3600 * 24) # 24 hours
+        
+        signed_url = None
+        if isinstance(res, dict):
+             signed_url = res.get("signedURL")
+        elif isinstance(res, str):
+             signed_url = res
+             
+        if not signed_url:
+             # Try fallback if response shape differs
+             print(f"Unexpected signed URL response: {res}")
+             raise ValueError("Could not extract signed URL")
+
+        return {"url": signed_url}
+    except Exception as e:
+        print(f"Error signing URL: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate signed URL")

@@ -6,7 +6,8 @@ import httpx
 from sqlmodel import Session
 from database.models import Call, CallStatusEvent
 from services.websocket_manager import manager
-from services.supabase_service import get_user_by_id
+from services.supabase_service import get_user_by_id, supabase
+
 
 def to_iso_utc(dt: Optional[datetime]) -> Optional[str]:
     """Helper to convert naive datetime to UTC ISO string with Z suffix logic (or aware)."""
@@ -359,21 +360,33 @@ class CallService:
         if original_recording_url:
             try:
                 filename = f"{call_id}.mp3"
-                filepath = os.path.join("recordings", filename)
-                # Ensure dir exists
-                os.makedirs("recordings", exist_ok=True)
                 
                 async with httpx.AsyncClient() as http_client:
                     resp = await http_client.get(original_recording_url)
                     if resp.status_code == 200:
-                        with open(filepath, "wb") as f:
-                            f.write(resp.content)
-                        recording_url = f"/api/recordings/{filename}"
-                        print(f"[end-of-call] Downloaded recording to {filepath}")
+                        file_bytes = resp.content
+                        
+                        if supabase:
+                            try:
+                                bucket_name = os.environ.get("SUPABASE_BUCKET", "recordings")
+                                
+                                # Upload to Supabase
+                                supabase.storage.from_(bucket_name).upload(
+                                    path=filename,
+                                    file=file_bytes,
+                                    file_options={"content-type": "audio/mpeg", "upsert": "true"}
+                                )
+                                # Store FILENAME only (to be signed on retrieval)
+                                recording_url = filename 
+                                print(f"[end-of-call] Uploaded recording to Supabase: {filename}")
+                            except Exception as sup_err:
+                                print(f"[end-of-call] Supabase upload error: {sup_err}")
+                        else:
+                            print("[end-of-call] Supabase credentials missing. Skipping upload.")
                     else:
                         print(f"[end-of-call] Failed to download recording: {resp.status_code}")
             except Exception as e:
-                print(f"[end-of-call] Error downloading recording: {e}")
+                print(f"[end-of-call] Error processing recording: {e}")
 
         summary_text = message.get("summary") or analysis.get("summary")
         summary = {"summary": summary_text}
