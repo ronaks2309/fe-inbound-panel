@@ -7,9 +7,9 @@ Real-time monitoring for AI voice agents powered by VAPI.ai. The FastAPI backend
   - `app.py` – Main FastAPI application entry point
   - `database/` – SQLModel models, DB connection (`calls_dashboard.db`)
   - `routers/` – API routes (calls, webhooks, debug, websockets)
-  - `services/` – Business logic (call_service)
-  - `recordings/` – Downloaded call recordings
-- **frontend/** – React + Vite + Tailwind (v4) dashboard UI
+  - `services/` – Business logic (call_service, supabase_service)
+  - `recordings/` – Local fallback for recordings
+- **frontend/** – React + Vite + Tailwind CSS v4 dashboard UI
   - `src/components/` – CallDashboard, TranscriptModal, ListenModal, RecordingModal
 - api_docs.md – Existing HTTP/WebSocket reference
 - architecture-diagrams.md – Original Mermaid diagrams
@@ -35,13 +35,18 @@ Frontend
 5) Open the printed dev URL (e.g., http://localhost:5173).
 
 ## Environment
-- Frontend: VITE_BACKEND_URL – base URL for backend HTTP + WS.
-- Backend DB: configured in `backend/database/connection.py` (sqlite:///./vapi_dashboard.db). Change there if you want Postgres.
+- Frontend: 
+  - `VITE_BACKEND_URL`: Base URL for backend HTTP + WS (default: `http://localhost:8000`).
+- Backend:
+  - `DATABASE_URL`: SQLModel database URL (default: `sqlite:///./vapi_dashboard.db`).
+  - `SUPABASE_URL`: Supabase project URL for Auth/Storage.
+  - `SUPABASE_KEY`: Supabase Service Role Key (for storage signing).
+  - `SUPABASE_BUCKET`: Storage bucket name (default: `recordings`).
 
 ## Data Model (SQLModel)
 - Client: id (pk), name, created_at
-- Call: id (pk), client_id (fk Client), phone_number, status, started_at, ended_at, listen_url, control_url, live_transcript, final_transcript, recording_url, summary (JSON), created_at, updated_at
-- CallStatusEvent: id (pk), call_id (fk Call), client_id (fk Client), status, payload (JSON), created_at
+- Call: id (pk), client_id (fk Client), phone_number, status, started_at, ended_at, cost, user_id, username, duration, listen_url, control_url, live_transcript, final_transcript, recording_url, summary (JSON), created_at, updated_at
+- CallStatusEvent: id (pk), call_id (fk Call), client_id (fk Client), user_id, status, payload (JSON), created_at
 
 ## Backend Overview
 Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins.
@@ -64,12 +69,13 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
     - `end-of-call-report`: mark status="ended", set ended_at, final_transcript, recording_url (downloads and stores locally), summary; insert CallStatusEvent; broadcast call-upsert.
     - anything else: logs as generic CallStatusEvent; no broadcast.
 - **GET /api/{client_id}/calls** → `listCalls()` – Returns `List[CallListResponse]`
+  - Query Params: `user_id` (optional) to filter by assigned agent.
   - Lightweight response excluding heavy fields (transcripts, summary)
   - Includes computed flags: `hasListenUrl`, `hasLiveTranscript`, `hasFinalTranscript`
 - **GET /api/calls/{call_id}** → `detailCall()` – Returns `CallDetailResponse`
   - Full call details including transcripts and summary
-- **GET /api/recordings/{filename}** → Serve recording files
-  - Serves audio from local `recordings/` directory
+- **GET /api/calls/{call_id}/recording** → Get Recording URL
+  - Returns a signed URL from Supabase Storage (valid for 24h) or a direct URL if already absolute.
 - POST /api/{client_id}/calls/{call_id}/force-transfer
   - Body: { "agent_phone_number": "+1...", "content": "optional message" }
   - Looks up Call.control_url; POSTs {type:"transfer",destination:{type:"number",number:<agent>},content:<content>} to that URL via httpx.
@@ -139,7 +145,7 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
 - **RecordingModal.tsx** (~60 lines)
   - Simple audio playback for call recordings
   - Assumes relative URLs and prepends `backendUrl`
-- **Styling**: Tailwind v4 via `@import "tailwindcss"`
+- **Styling**: Tailwind CSS v4
 
 ## Expected CallMark AI Webhook Payloads (examples)
 - Status update
