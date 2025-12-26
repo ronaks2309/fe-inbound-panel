@@ -452,7 +452,8 @@ const CallDashboard: React.FC = () => {
           Transcript
         </button>
         <button
-          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+          disabled={!canForceTransfer || isTransferring}
           onClick={() => {
             console.log("Take Over clicked for", c.id);
             handleForceTransfer(c);
