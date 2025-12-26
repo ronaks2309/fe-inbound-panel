@@ -1,10 +1,22 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 import os
 import httpx
 from sqlmodel import Session
 from database.models import Call, CallStatusEvent
 from services.websocket_manager import manager
+from services.supabase_service import get_user_by_id, supabase
+
+
+def to_iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Helper to convert naive datetime to UTC ISO string with Z suffix logic (or aware)."""
+    if not dt:
+        return None
+    # If naive, assume UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 class CallService:
     """
@@ -53,6 +65,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'status-update' messages from Vprod.
@@ -61,7 +74,8 @@ class CallService:
         status = message.get("status")
         call_data = message.get("call", {})
         call_id = call_data.get("id")
-        
+        created_at = call_data.get("createdAt")
+
         if not call_id:
             print("[CallMark AI][status-update] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
@@ -91,6 +105,36 @@ class CallService:
             call.control_url = control_url
         if status:
             call.status = status
+        
+        # Capture startedAt if present
+        started_at_str = call_data.get("startedAt")
+        if started_at_str:
+            try:
+                # Vapi sends ISO format, usually with Z. handling replace just in case.
+                call.started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            except Exception as e:
+                print(f"Error parsing startedAt: {e}")
+
+        # Update user_id if provided
+        if user_id:
+            call.user_id = user_id
+            
+            # If username is missing, fetch it
+            if not call.username:
+                try:
+                    user = get_user_by_id(user_id)
+                    if user:
+                        # Try username, then display_name, then email
+                        username = user.user_metadata.get("username")
+                        if not username:
+                            username = user.user_metadata.get("display_name")
+                        if not username:
+                            username = user.email
+                        
+                        if username:
+                            call.username = username
+                except Exception as e:
+                    print(f"Failed to resolve username for {user_id}: {e}")
 
         now = datetime.utcnow()
         # Mark as ended if status indicates completion
@@ -105,6 +149,7 @@ class CallService:
             client_id=client_id,
             status="status-update: " + (status or "unknown"),
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -119,15 +164,17 @@ class CallService:
                 "id": call.id,
                 "status": call.status,
                 "phoneNumber": call.phone_number,
-                "startedAt": call.started_at.isoformat() if call.started_at else None,
-                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "startedAt": to_iso_utc(call.started_at) or to_iso_utc(call.created_at),
+                "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "hasTranscript": bool(call.final_transcript),
                 "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
+                "username": call.username,
+                "duration": call.duration,
             }
-        })
+        }, user_id=user_id)
 
         return {
             "ok": True,
@@ -144,6 +191,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'transcript' messages (live transcript).
@@ -200,12 +248,16 @@ class CallService:
                 transcript_text = append_chunk
 
         #call.updated_at = datetime.utcnow()
+        
+        if user_id:
+            call.user_id = user_id
 
         status_event = CallStatusEvent(
             call_id=call.id,
             client_id=client_id,
             status="transcript-update",
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -230,15 +282,18 @@ class CallService:
                     "id": call.id,
                     "status": call.status,
                     "phoneNumber": call.phone_number,
-                    "startedAt": call.started_at.isoformat() if call.started_at else None,
-                    "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                    "startedAt": to_iso_utc(call.started_at) or to_iso_utc(call.created_at),
+                    "created_at": to_iso_utc(call.created_at),
+                    "endedAt": to_iso_utc(call.ended_at),
                     "hasListenUrl": bool(call.listen_url),
                     "hasTranscript": bool(call.final_transcript),
                     "hasFinalTranscript": bool(call.final_transcript),
                     "hasLiveTranscript": True,
                     "hasRecording": bool(call.recording_url),
+                    "username": call.username,
+                    "duration": call.duration,
                 }
-            })
+            }, user_id=user_id)
 
         return {
             "ok": True,
@@ -254,6 +309,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'end-of-call-report'.
@@ -304,21 +360,33 @@ class CallService:
         if original_recording_url:
             try:
                 filename = f"{call_id}.mp3"
-                filepath = os.path.join("recordings", filename)
-                # Ensure dir exists
-                os.makedirs("recordings", exist_ok=True)
                 
                 async with httpx.AsyncClient() as http_client:
                     resp = await http_client.get(original_recording_url)
                     if resp.status_code == 200:
-                        with open(filepath, "wb") as f:
-                            f.write(resp.content)
-                        recording_url = f"/api/recordings/{filename}"
-                        print(f"[end-of-call] Downloaded recording to {filepath}")
+                        file_bytes = resp.content
+                        
+                        if supabase:
+                            try:
+                                bucket_name = os.environ.get("SUPABASE_BUCKET", "recordings")
+                                
+                                # Upload to Supabase
+                                supabase.storage.from_(bucket_name).upload(
+                                    path=filename,
+                                    file=file_bytes,
+                                    file_options={"content-type": "audio/mpeg", "upsert": "true"}
+                                )
+                                # Store FILENAME only (to be signed on retrieval)
+                                recording_url = filename 
+                                print(f"[end-of-call] Uploaded recording to Supabase: {filename}")
+                            except Exception as sup_err:
+                                print(f"[end-of-call] Supabase upload error: {sup_err}")
+                        else:
+                            print("[end-of-call] Supabase credentials missing. Skipping upload.")
                     else:
                         print(f"[end-of-call] Failed to download recording: {resp.status_code}")
             except Exception as e:
-                print(f"[end-of-call] Error downloading recording: {e}")
+                print(f"[end-of-call] Error processing recording: {e}")
 
         summary_text = message.get("summary") or analysis.get("summary")
         summary = {"summary": summary_text}
@@ -351,6 +419,34 @@ class CallService:
             call.recording_url = recording_url
         if summary is not None:
             call.summary = summary
+            
+        # Duration from payload (if available)
+        duration_seconds = message.get("durationSeconds") or analysis.get("durationSeconds")
+        if duration_seconds is not None:
+             call.duration = int(duration_seconds)
+        # Fallback: calc from start/end
+        elif call.started_at and call.ended_at:
+             delta = call.ended_at - call.started_at
+             call.duration = int(delta.total_seconds())
+
+        if user_id:
+            call.user_id = user_id
+            # Also populate username if missing (late binding)
+            if not call.username:
+                try:
+                    user = get_user_by_id(user_id)
+                    if user:
+                         # Try username, then display_name, then email
+                        username = user.user_metadata.get("username")
+                        if not username:
+                            username = user.user_metadata.get("display_name")
+                        if not username:
+                            username = user.email
+                        
+                        if username:
+                            call.username = username
+                except:
+                    pass
 
         call.updated_at = now
 
@@ -359,6 +455,7 @@ class CallService:
             client_id=client_id,
             status="end-of-call-report",
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -372,8 +469,8 @@ class CallService:
                 "id": call.id,
                 "status": call.status,
                 "phoneNumber": call.phone_number,
-                "startedAt": call.started_at.isoformat() if call.started_at else None,
-                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "startedAt": to_iso_utc(call.started_at),
+                "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "finalTranscript": call.final_transcript,
                 "liveTranscript": call.live_transcript,
@@ -382,8 +479,10 @@ class CallService:
                 "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
+                "username": call.username,
+                "duration": call.duration,
             }
-        })
+        }, user_id=user_id)
 
         return {
             "ok": True,
@@ -399,6 +498,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles generic or unknown events.
@@ -437,6 +537,7 @@ class CallService:
             client_id=client_id,
             status=status,
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()

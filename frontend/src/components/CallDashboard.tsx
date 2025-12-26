@@ -21,6 +21,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { TranscriptModal } from "./TranscriptModal";
 import { ListenModal } from "./ListenModal";
 import { RecordingModal } from "./RecordingModal";
+import { supabase } from "../lib/supabase";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -30,8 +31,13 @@ export type Call = {
   phone_number?: string | null;
   status?: string | null;
   started_at?: string | null;
+  created_at: string; // Ensure this is present
   ended_at?: string | null;
   has_listen_url?: boolean;
+
+  user_id?: string | null;
+  username?: string | null;
+  duration?: number | null;
 
   hasTranscript?: boolean;
   hasLiveTranscript?: boolean;
@@ -59,6 +65,7 @@ const CallDashboard: React.FC = () => {
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
+  const [userInfo, setUserInfo] = useState<any>(null); // Supabase user object
 
   // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
   // Perfect for storing WebSocket connections, timers, or DOM references
@@ -66,14 +73,33 @@ const CallDashboard: React.FC = () => {
 
 
 
-  // EFFECT 1: Load initial calls via HTTP when component first mounts
-  // useEffect with empty [] dependency array = runs ONCE on mount, never again
+  // EFFECT 1: Load initial calls via HTTP depending on user info
   useEffect(() => {
     async function loadCalls() {
+      if (!userInfo) return; // Wait for user info to be loaded
+
+      const metadata = userInfo.user_metadata || {};
+      const tenantId = metadata.tenant_id || "demo-client";
+      const role = metadata.role || "admin";
+
+      // Determine API URL
+      // If agent, filter by their Supabase UUID (user.id) or username depending on how backend stores it
+      // We will assume backend stores the Supabase User ID (UUID) if assigned
+      // Or we can pass it, and if no calls match, so be it.
+      let url = `${backendUrl}/api/${tenantId}/calls`;
+
+      if (role === 'user') {
+        // Pass the user's ID as user_id filter
+        // Note: Backend must support this query param
+        url += `?user_id=${userInfo.id}`;
+      }
+
+      console.log("Fetching calls from:", url);
+
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`${backendUrl}/api/demo-client/calls`);
+        const res = await fetch(url);
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -86,8 +112,13 @@ const CallDashboard: React.FC = () => {
           phone_number: c.phone_number ?? c.phoneNumber ?? null,
           status: c.status ?? null,
           started_at: c.started_at ?? c.startedAt ?? null,
+          created_at: c.created_at ?? new Date().toISOString(), // Fallback if missing
           ended_at: c.ended_at ?? c.endedAt ?? null,
           has_listen_url: c.hasListenUrl ?? false,
+
+          user_id: c.user_id ?? c.userId ?? null,
+          username: c.username ?? null,
+          duration: c.duration ?? null,
 
           hasTranscript: c.hasTranscript ?? false, // Normalized from backend
           hasLiveTranscript: c.hasLiveTranscript ?? !!c.live_transcript,
@@ -113,6 +144,15 @@ const CallDashboard: React.FC = () => {
     }
 
     loadCalls();
+  }, [userInfo]); // Re-run when userInfo loads
+
+  // EFFECT: Load user info
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setUserInfo(user);
+      }
+    });
   }, []);
 
   // HELPER FUNCTION: Upsert (update or insert) a call from WebSocket payload
@@ -127,8 +167,12 @@ const CallDashboard: React.FC = () => {
       phone_number: c.phoneNumber ?? c.phone_number ?? null,
       status: c.status ?? null,
       started_at: c.startedAt ?? c.started_at ?? null,
+      created_at: c.created_at ?? c.createdAt, // Allow undefined here, handle fallback in merge
       ended_at: c.endedAt ?? c.ended_at ?? null,
       has_listen_url: c.hasListenUrl ?? Boolean(c.listenUrl) ?? false,
+      user_id: c.userId ?? c.user_id ?? undefined,
+      username: c.username ?? undefined,
+      duration: c.duration ?? undefined,
       hasTranscript:
         c.hasTranscript ?? undefined,      // backend already sends flags
       hasLiveTranscript:
@@ -157,6 +201,15 @@ const CallDashboard: React.FC = () => {
           ...newCall,
           // Merge flags
           has_listen_url: newCall.has_listen_url ?? old.has_listen_url ?? false,
+          username: newCall.username ?? old.username ?? null,
+          duration: newCall.duration ?? old.duration ?? null,
+          user_id: newCall.user_id ?? old.user_id ?? null,
+          // Preserve started_at if missing in update (prevents timer reset on partial updates)
+          started_at: newCall.started_at ?? old.started_at ?? null,
+          // If newCall.created_at is defined (from backend), use it. 
+          // Else keep old created_at. 
+          // Fallback to new date ONLY if both are missing.
+          created_at: newCall.created_at ?? old.created_at ?? new Date().toISOString(),
           hasTranscript:
             newCall.hasTranscript ?? old.hasTranscript ?? false,
           hasLiveTranscript:
@@ -234,7 +287,14 @@ const CallDashboard: React.FC = () => {
   // EFFECT 2: WebSocket connection for real-time dashboard updates
   // This effect runs ONCE on mount and stays open until component unmounts
   useEffect(() => {
-    const wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+    let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+
+    // Auth: Pass user_id, role, and tenant_id if valid user
+    if (userInfo && userInfo.id) {
+      const metadata = userInfo.user_metadata || {};
+      wsUrl += `?user_id=${userInfo.id}&role=${metadata.role || 'user'}&tenant_id=${metadata.tenant_id || 'demo-client'}`;
+    }
+
     console.log("Connecting WebSocket to:", wsUrl);
 
     // Create WebSocket connection that will stay open for entire session
@@ -296,7 +356,7 @@ const CallDashboard: React.FC = () => {
       ws.close();
       wsRef.current = null;
     };
-  }, []); // Empty [] = run once on mount, cleanup on unmount
+  }, [userInfo]); // Re-run when userInfo loads (so we attach user_id to WS)
 
   // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
   // This runs whenever transcriptModalCallId CHANGES (user opens/closes transcript modal)
@@ -417,8 +477,17 @@ const CallDashboard: React.FC = () => {
               Live Monitoring
             </h1>
             <p className="text-sm text-slate-500">
-              Client: <span className="font-mono">demo-client</span>
+              Client: <span className="font-mono">{userInfo?.user_metadata?.tenant_id || 'connecting...'}</span>
             </p>
+            {userInfo && (
+              <p className="text-sm text-slate-500">
+                Welcome: <span className="font-medium text-slate-700">{userInfo.user_metadata?.display_name || userInfo.user_metadata?.username || userInfo.email}</span>
+                <span className="mx-2 text-slate-300">|</span>
+                Tenant: <span className="font-medium text-slate-700">{userInfo.user_metadata?.tenant_id}</span>
+                <span className="mx-2 text-slate-300">|</span>
+                Role: <span className="uppercase text-xs tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded ml-1">{userInfo.user_metadata?.role || 'admin'}</span>
+              </p>
+            )}
           </div>
           <div className="text-xs text-slate-400">
             Backend:{" "}
@@ -481,10 +550,16 @@ const CallDashboard: React.FC = () => {
                         Call ID
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        User
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Phone
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Status
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Duration
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Started At
@@ -503,11 +578,17 @@ const CallDashboard: React.FC = () => {
                         <td className="px-3 py-2 font-mono text-xs text-slate-800">
                           {c.id}
                         </td>
+                        <td className="px-3 py-2 text-slate-800 text-xs">
+                          {c.username || c.user_id || "-"}
+                        </td>
                         <td className="px-3 py-2 text-slate-800">
                           {c.phone_number || "-"}
                         </td>
                         <td className="px-3 py-2">
                           <StatusBadge status={c.status} />
+                        </td>
+                        <td className="px-3 py-2 text-slate-700 font-mono text-xs">
+                          <DurationTimer call={c} />
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {c.started_at
@@ -585,6 +666,72 @@ const StatusBadge: React.FC<{ status?: string | null }> = ({ status }) => {
   }
 
   return <span className={classes}>{label}</span>;
+};
+
+const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
+  const [elapsed, setElapsed] = useState<number | null>(null);
+
+  useEffect(() => {
+    // If we have a static duration (ended call), just use it
+    if (call.duration !== undefined && call.duration !== null) {
+      setElapsed(call.duration);
+      return;
+    }
+
+    // If call is active and we have started_at, calc live
+    const status = (call.status || "").toLowerCase();
+    const isActive = ["in-progress", "ringing", "queued"].includes(status);
+
+    if (isActive) {
+      // Use started_at if available, otherwise fallback to created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+
+        const interval = setInterval(() => {
+          const now = Date.now();
+          const diffSeconds = Math.floor((now - start) / 1000);
+          setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+        }, 1000);
+
+        // Initial set
+        const now = Date.now();
+        const diffSeconds = Math.floor((now - start) / 1000);
+        setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+
+        return () => clearInterval(interval);
+      }
+    }
+
+    // Fallback if ended but no duration yet (e.g. just ended before report)
+    if (call.ended_at) {
+      // Use started_at or created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+        const end = new Date(call.ended_at).getTime();
+        const diff = Math.floor((end - start) / 1000);
+        setElapsed(diff > 0 ? diff : 0);
+      }
+    } else {
+      setElapsed(null);
+    }
+
+  }, [call.status, call.started_at, call.created_at, call.ended_at, call.duration]);
+
+  if (elapsed === null) return <span>-</span>;
+
+  // Format HH:MM:SS
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+
+  const fmt = (n: number) => n.toString().padStart(2, "0");
+
+  if (h > 0) {
+    return <span>{fmt(h)}:{fmt(m)}:{fmt(s)}</span>;
+  }
+  return <span>{fmt(m)}:{fmt(s)}</span>;
 };
 
 export default CallDashboard;

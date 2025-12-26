@@ -1,7 +1,7 @@
 
 # models.py
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import JSON
 from typing import Optional
 from datetime import datetime
 from sqlalchemy import func
@@ -22,6 +22,11 @@ class Call(SQLModel, table=True):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     cost: Optional[float] = None
+
+    # User Assignment
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    duration: Optional[int] = None
 
     # Streaming / live listening
     listen_url: Optional[str] = None
@@ -53,7 +58,9 @@ class CallStatusEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     call_id: str = Field(foreign_key="call.id")
     client_id: str = Field(foreign_key="client.id")
-
+    # Added for consistency with Call model
+    user_id: Optional[str] = None
+    
     status: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

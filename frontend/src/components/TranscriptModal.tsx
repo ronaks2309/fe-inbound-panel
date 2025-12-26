@@ -8,6 +8,7 @@ export type Call = {
     phone_number?: string | null;
     status?: string | null;
     started_at?: string | null;
+    created_at: string;
     ended_at?: string | null;
     has_listen_url?: boolean;
     hasTranscript?: boolean;
@@ -51,6 +52,10 @@ export const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose,
                 const fullCall: Call = {
                     ...call,
                     ...data,
+                    // Preserve WS timestamps (usually more accurate/timezone-valid) over HTTP naive ones
+                    started_at: call.started_at ?? data.started_at ?? data.startedAt,
+                    created_at: call.created_at ?? data.created_at ?? data.createdAt,
+
                     // Ensure fields map correctly if backend uses snake_case
                     live_transcript: data.live_transcript ?? data.liveTranscript,
                     final_transcript: data.final_transcript ?? data.finalTranscript,

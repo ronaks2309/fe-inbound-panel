@@ -1,5 +1,6 @@
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Header
+from typing import Optional
 from sqlmodel import Session
 from database.connection import get_session
 from services.call_service import CallService
@@ -10,6 +11,7 @@ router = APIRouter()
 async def vprod_server_webhook(
     client_id: str,
     payload: dict = Body(...),
+    x_user_id: Optional[str] = Header(None, alias="user-id"),
     session: Session = Depends(get_session),
 ):
     """
@@ -26,14 +28,14 @@ async def vprod_server_webhook(
     msg_type = (message.get("type") or "").lower()
 
     if msg_type == "status-update":
-        return await CallService.handle_status_update(client_id, message, payload, session)
+        return await CallService.handle_status_update(client_id, message, payload, session, user_id=x_user_id)
 
     elif msg_type == "transcript":
-        return await CallService.handle_transcript_update(client_id, message, payload, session)
+        return await CallService.handle_transcript_update(client_id, message, payload, session, user_id=x_user_id)
 
     elif msg_type in {"end-of-call-report"}:
-        return await CallService.handle_end_of_call_report(client_id, message, payload, session)
+        return await CallService.handle_end_of_call_report(client_id, message, payload, session, user_id=x_user_id)
 
     # Fallback: unknown type -> just log payload
     print(f"\n[CallMark AI] Unknown message.type='{msg_type}', logging as generic event.")
-    return await CallService.handle_generic_event(client_id, message, payload, session)
+    return await CallService.handle_generic_event(client_id, message, payload, session, user_id=x_user_id)
