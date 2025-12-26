@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import os
 import httpx
@@ -7,6 +7,15 @@ from sqlmodel import Session
 from database.models import Call, CallStatusEvent
 from services.websocket_manager import manager
 from services.supabase_service import get_user_by_id
+
+def to_iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Helper to convert naive datetime to UTC ISO string with Z suffix logic (or aware)."""
+    if not dt:
+        return None
+    # If naive, assume UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 class CallService:
     """
@@ -64,7 +73,8 @@ class CallService:
         status = message.get("status")
         call_data = message.get("call", {})
         call_id = call_data.get("id")
-        
+        created_at = call_data.get("createdAt")
+
         if not call_id:
             print("[CallMark AI][status-update] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
@@ -95,6 +105,15 @@ class CallService:
         if status:
             call.status = status
         
+        # Capture startedAt if present
+        started_at_str = call_data.get("startedAt")
+        if started_at_str:
+            try:
+                # Vapi sends ISO format, usually with Z. handling replace just in case.
+                call.started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            except Exception as e:
+                print(f"Error parsing startedAt: {e}")
+
         # Update user_id if provided
         if user_id:
             call.user_id = user_id
@@ -144,8 +163,8 @@ class CallService:
                 "id": call.id,
                 "status": call.status,
                 "phoneNumber": call.phone_number,
-                "startedAt": call.started_at.isoformat() if call.started_at else None,
-                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "startedAt": to_iso_utc(call.started_at) or to_iso_utc(call.created_at),
+                "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "hasTranscript": bool(call.final_transcript),
                 "hasFinalTranscript": bool(call.final_transcript),
@@ -262,9 +281,9 @@ class CallService:
                     "id": call.id,
                     "status": call.status,
                     "phoneNumber": call.phone_number,
-                    "startedAt": call.started_at.isoformat() if call.started_at else None,
-                    "created_at": call.created_at.isoformat() if call.created_at else None,
-                    "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                    "startedAt": to_iso_utc(call.started_at) or to_iso_utc(call.created_at),
+                    "created_at": to_iso_utc(call.created_at),
+                    "endedAt": to_iso_utc(call.ended_at),
                     "hasListenUrl": bool(call.listen_url),
                     "hasTranscript": bool(call.final_transcript),
                     "hasFinalTranscript": bool(call.final_transcript),
@@ -437,8 +456,8 @@ class CallService:
                 "id": call.id,
                 "status": call.status,
                 "phoneNumber": call.phone_number,
-                "startedAt": call.started_at.isoformat() if call.started_at else None,
-                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+                "startedAt": to_iso_utc(call.started_at),
+                "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "finalTranscript": call.final_transcript,
                 "liveTranscript": call.live_transcript,

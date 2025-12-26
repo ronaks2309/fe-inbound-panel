@@ -204,6 +204,8 @@ const CallDashboard: React.FC = () => {
           username: newCall.username ?? old.username ?? null,
           duration: newCall.duration ?? old.duration ?? null,
           user_id: newCall.user_id ?? old.user_id ?? null,
+          // Preserve started_at if missing in update (prevents timer reset on partial updates)
+          started_at: newCall.started_at ?? old.started_at ?? null,
           // If newCall.created_at is defined (from backend), use it. 
           // Else keep old created_at. 
           // Fallback to new date ONLY if both are missing.
