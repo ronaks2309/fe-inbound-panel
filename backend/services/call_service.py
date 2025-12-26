@@ -6,6 +6,7 @@ import httpx
 from sqlmodel import Session
 from database.models import Call, CallStatusEvent
 from services.websocket_manager import manager
+from services.supabase_service import get_user_by_id
 
 class CallService:
     """
@@ -97,6 +98,23 @@ class CallService:
         # Update user_id if provided
         if user_id:
             call.user_id = user_id
+            
+            # If username is missing, fetch it
+            if not call.username:
+                try:
+                    user = get_user_by_id(user_id)
+                    if user:
+                        # Try username, then display_name, then email
+                        username = user.user_metadata.get("username")
+                        if not username:
+                            username = user.user_metadata.get("display_name")
+                        if not username:
+                            username = user.email
+                        
+                        if username:
+                            call.username = username
+                except Exception as e:
+                    print(f"Failed to resolve username for {user_id}: {e}")
 
         now = datetime.utcnow()
         # Mark as ended if status indicates completion
@@ -133,6 +151,8 @@ class CallService:
                 "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
+                "username": call.username,
+                "duration": call.duration,
             }
         }, user_id=user_id)
 
@@ -243,12 +263,15 @@ class CallService:
                     "status": call.status,
                     "phoneNumber": call.phone_number,
                     "startedAt": call.started_at.isoformat() if call.started_at else None,
+                    "created_at": call.created_at.isoformat() if call.created_at else None,
                     "endedAt": call.ended_at.isoformat() if call.ended_at else None,
                     "hasListenUrl": bool(call.listen_url),
                     "hasTranscript": bool(call.final_transcript),
                     "hasFinalTranscript": bool(call.final_transcript),
                     "hasLiveTranscript": True,
                     "hasRecording": bool(call.recording_url),
+                    "username": call.username,
+                    "duration": call.duration,
                 }
             }, user_id=user_id)
 
@@ -365,8 +388,33 @@ class CallService:
         if summary is not None:
             call.summary = summary
             
+        # Duration from payload (if available)
+        duration_seconds = message.get("durationSeconds") or analysis.get("durationSeconds")
+        if duration_seconds is not None:
+             call.duration = int(duration_seconds)
+        # Fallback: calc from start/end
+        elif call.started_at and call.ended_at:
+             delta = call.ended_at - call.started_at
+             call.duration = int(delta.total_seconds())
+
         if user_id:
             call.user_id = user_id
+            # Also populate username if missing (late binding)
+            if not call.username:
+                try:
+                    user = get_user_by_id(user_id)
+                    if user:
+                         # Try username, then display_name, then email
+                        username = user.user_metadata.get("username")
+                        if not username:
+                            username = user.user_metadata.get("display_name")
+                        if not username:
+                            username = user.email
+                        
+                        if username:
+                            call.username = username
+                except:
+                    pass
 
         call.updated_at = now
 
@@ -399,6 +447,8 @@ class CallService:
                 "hasFinalTranscript": bool(call.final_transcript),
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
+                "username": call.username,
+                "duration": call.duration,
             }
         }, user_id=user_id)
 

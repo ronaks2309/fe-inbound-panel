@@ -24,6 +24,8 @@ class CallListResponse(BaseModel):
     ended_at: Optional[datetime] = None
     cost: Optional[float] = None
     user_id: Optional[str] = None
+    username: Optional[str] = None
+    duration: Optional[int] = None
     recording_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -70,6 +72,8 @@ def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = 
             ended_at=c.ended_at,
             cost=c.cost,
             user_id=c.user_id,
+            username=c.username,
+            duration=c.duration,
             recording_url=c.recording_url,
             created_at=c.created_at,
             updated_at=c.updated_at,
@@ -105,6 +109,8 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
         ended_at=call.ended_at,
         cost=call.cost,
         user_id=call.user_id,
+        username=call.username,
+        duration=call.duration,
         recording_url=call.recording_url,
         created_at=call.created_at,
         updated_at=call.updated_at,

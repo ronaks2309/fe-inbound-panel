@@ -8,6 +8,7 @@ export type Call = {
     phone_number?: string | null;
     status?: string | null;
     started_at?: string | null;
+    created_at: string;
     ended_at?: string | null;
     has_listen_url?: boolean;
     hasTranscript?: boolean;

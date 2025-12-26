@@ -31,8 +31,13 @@ export type Call = {
   phone_number?: string | null;
   status?: string | null;
   started_at?: string | null;
+  created_at: string; // Ensure this is present
   ended_at?: string | null;
   has_listen_url?: boolean;
+
+  user_id?: string | null;
+  username?: string | null;
+  duration?: number | null;
 
   hasTranscript?: boolean;
   hasLiveTranscript?: boolean;
@@ -107,8 +112,13 @@ const CallDashboard: React.FC = () => {
           phone_number: c.phone_number ?? c.phoneNumber ?? null,
           status: c.status ?? null,
           started_at: c.started_at ?? c.startedAt ?? null,
+          created_at: c.created_at ?? new Date().toISOString(), // Fallback if missing
           ended_at: c.ended_at ?? c.endedAt ?? null,
           has_listen_url: c.hasListenUrl ?? false,
+
+          user_id: c.user_id ?? c.userId ?? null,
+          username: c.username ?? null,
+          duration: c.duration ?? null,
 
           hasTranscript: c.hasTranscript ?? false, // Normalized from backend
           hasLiveTranscript: c.hasLiveTranscript ?? !!c.live_transcript,
@@ -157,8 +167,12 @@ const CallDashboard: React.FC = () => {
       phone_number: c.phoneNumber ?? c.phone_number ?? null,
       status: c.status ?? null,
       started_at: c.startedAt ?? c.started_at ?? null,
+      created_at: c.created_at ?? c.createdAt, // Allow undefined here, handle fallback in merge
       ended_at: c.endedAt ?? c.ended_at ?? null,
       has_listen_url: c.hasListenUrl ?? Boolean(c.listenUrl) ?? false,
+      user_id: c.userId ?? c.user_id ?? undefined,
+      username: c.username ?? undefined,
+      duration: c.duration ?? undefined,
       hasTranscript:
         c.hasTranscript ?? undefined,      // backend already sends flags
       hasLiveTranscript:
@@ -187,6 +201,13 @@ const CallDashboard: React.FC = () => {
           ...newCall,
           // Merge flags
           has_listen_url: newCall.has_listen_url ?? old.has_listen_url ?? false,
+          username: newCall.username ?? old.username ?? null,
+          duration: newCall.duration ?? old.duration ?? null,
+          user_id: newCall.user_id ?? old.user_id ?? null,
+          // If newCall.created_at is defined (from backend), use it. 
+          // Else keep old created_at. 
+          // Fallback to new date ONLY if both are missing.
+          created_at: newCall.created_at ?? old.created_at ?? new Date().toISOString(),
           hasTranscript:
             newCall.hasTranscript ?? old.hasTranscript ?? false,
           hasLiveTranscript:
@@ -527,10 +548,16 @@ const CallDashboard: React.FC = () => {
                         Call ID
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        User
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Phone
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Status
+                      </th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                        Duration
                       </th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700">
                         Started At
@@ -549,11 +576,17 @@ const CallDashboard: React.FC = () => {
                         <td className="px-3 py-2 font-mono text-xs text-slate-800">
                           {c.id}
                         </td>
+                        <td className="px-3 py-2 text-slate-800 text-xs">
+                          {c.username || c.user_id || "-"}
+                        </td>
                         <td className="px-3 py-2 text-slate-800">
                           {c.phone_number || "-"}
                         </td>
                         <td className="px-3 py-2">
                           <StatusBadge status={c.status} />
+                        </td>
+                        <td className="px-3 py-2 text-slate-700 font-mono text-xs">
+                          <DurationTimer call={c} />
                         </td>
                         <td className="px-3 py-2 text-slate-700">
                           {c.started_at
@@ -631,6 +664,72 @@ const StatusBadge: React.FC<{ status?: string | null }> = ({ status }) => {
   }
 
   return <span className={classes}>{label}</span>;
+};
+
+const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
+  const [elapsed, setElapsed] = useState<number | null>(null);
+
+  useEffect(() => {
+    // If we have a static duration (ended call), just use it
+    if (call.duration !== undefined && call.duration !== null) {
+      setElapsed(call.duration);
+      return;
+    }
+
+    // If call is active and we have started_at, calc live
+    const status = (call.status || "").toLowerCase();
+    const isActive = ["in-progress", "ringing", "queued"].includes(status);
+
+    if (isActive) {
+      // Use started_at if available, otherwise fallback to created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+
+        const interval = setInterval(() => {
+          const now = Date.now();
+          const diffSeconds = Math.floor((now - start) / 1000);
+          setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+        }, 1000);
+
+        // Initial set
+        const now = Date.now();
+        const diffSeconds = Math.floor((now - start) / 1000);
+        setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+
+        return () => clearInterval(interval);
+      }
+    }
+
+    // Fallback if ended but no duration yet (e.g. just ended before report)
+    if (call.ended_at) {
+      // Use started_at or created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+        const end = new Date(call.ended_at).getTime();
+        const diff = Math.floor((end - start) / 1000);
+        setElapsed(diff > 0 ? diff : 0);
+      }
+    } else {
+      setElapsed(null);
+    }
+
+  }, [call.status, call.started_at, call.created_at, call.ended_at, call.duration]);
+
+  if (elapsed === null) return <span>-</span>;
+
+  // Format HH:MM:SS
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+
+  const fmt = (n: number) => n.toString().padStart(2, "0");
+
+  if (h > 0) {
+    return <span>{fmt(h)}:{fmt(m)}:{fmt(s)}</span>;
+  }
+  return <span>{fmt(m)}:{fmt(s)}</span>;
 };
 
 export default CallDashboard;

@@ -25,6 +25,8 @@ class Call(SQLModel, table=True):
 
     # User Assignment
     user_id: Optional[str] = None
+    username: Optional[str] = None
+    duration: Optional[int] = None
 
     # Streaming / live listening
     listen_url: Optional[str] = None
