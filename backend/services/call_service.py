@@ -1,5 +1,6 @@
 
 from datetime import datetime
+from typing import Optional
 import os
 import httpx
 from sqlmodel import Session
@@ -53,6 +54,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'status-update' messages from Vprod.
@@ -91,6 +93,10 @@ class CallService:
             call.control_url = control_url
         if status:
             call.status = status
+        
+        # Update user_id if provided
+        if user_id:
+            call.user_id = user_id
 
         now = datetime.utcnow()
         # Mark as ended if status indicates completion
@@ -105,6 +111,7 @@ class CallService:
             client_id=client_id,
             status="status-update: " + (status or "unknown"),
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -127,7 +134,7 @@ class CallService:
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
             }
-        })
+        }, user_id=user_id)
 
         return {
             "ok": True,
@@ -144,6 +151,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'transcript' messages (live transcript).
@@ -200,12 +208,16 @@ class CallService:
                 transcript_text = append_chunk
 
         #call.updated_at = datetime.utcnow()
+        
+        if user_id:
+            call.user_id = user_id
 
         status_event = CallStatusEvent(
             call_id=call.id,
             client_id=client_id,
             status="transcript-update",
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -238,7 +250,7 @@ class CallService:
                     "hasLiveTranscript": True,
                     "hasRecording": bool(call.recording_url),
                 }
-            })
+            }, user_id=user_id)
 
         return {
             "ok": True,
@@ -254,6 +266,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles 'end-of-call-report'.
@@ -351,6 +364,9 @@ class CallService:
             call.recording_url = recording_url
         if summary is not None:
             call.summary = summary
+            
+        if user_id:
+            call.user_id = user_id
 
         call.updated_at = now
 
@@ -359,6 +375,7 @@ class CallService:
             client_id=client_id,
             status="end-of-call-report",
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()
@@ -383,7 +400,7 @@ class CallService:
                 "hasLiveTranscript": bool(call.live_transcript),
                 "hasRecording": bool(call.recording_url),
             }
-        })
+        }, user_id=user_id)
 
         return {
             "ok": True,
@@ -399,6 +416,7 @@ class CallService:
         message: dict,
         full_payload: dict,
         session: Session,
+        user_id: Optional[str] = None,
     ):
         """
         Handles generic or unknown events.
@@ -437,6 +455,7 @@ class CallService:
             client_id=client_id,
             status=status,
             payload=full_payload,
+            user_id=user_id,
         )
         session.add(status_event)
         session.commit()

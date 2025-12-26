@@ -110,12 +110,22 @@ async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Se
 
 
 @router.websocket("/ws/dashboard")
-async def ws_dashboard(ws: WebSocket):
+async def ws_dashboard(
+    ws: WebSocket, 
+    user_id: str | None = None,
+    role: str = "user",
+    tenant_id: str | None = None
+):
     """
     Main dashboard WebSocket.
     Handles real-time updates for call lists and live transcripts.
+    user_id: Optional query param to filter events for a specific user.
+    role: "admin" or "user". Admins see all calls in their tenant.
+    tenant_id: Required for scoping events.
     """
-    await manager.register_dashboard(ws)
+    # Extract params from query if not injected (FastAPI handles this mostly, but good to be explicit in doc)
+    
+    await manager.register_dashboard(ws, user_id=user_id, role=role, tenant_id=tenant_id)
     print("Dashboard WS client connected")
 
     # send an initial hello just to verify

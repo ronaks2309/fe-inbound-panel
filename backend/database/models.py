@@ -23,6 +23,9 @@ class Call(SQLModel, table=True):
     ended_at: Optional[datetime] = None
     cost: Optional[float] = None
 
+    # User Assignment
+    user_id: Optional[str] = None
+
     # Streaming / live listening
     listen_url: Optional[str] = None
     control_url: Optional[str] = None
@@ -53,7 +56,9 @@ class CallStatusEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     call_id: str = Field(foreign_key="call.id")
     client_id: str = Field(foreign_key="client.id")
-
+    # Added for consistency with Call model
+    user_id: Optional[str] = None
+    
     status: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

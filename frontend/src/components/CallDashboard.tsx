@@ -60,7 +60,7 @@ const CallDashboard: React.FC = () => {
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userInfo, setUserInfo] = useState<any>(null); // Supabase user object
 
   // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
   // Perfect for storing WebSocket connections, timers, or DOM references
@@ -68,14 +68,33 @@ const CallDashboard: React.FC = () => {
 
 
 
-  // EFFECT 1: Load initial calls via HTTP when component first mounts
-  // useEffect with empty [] dependency array = runs ONCE on mount, never again
+  // EFFECT 1: Load initial calls via HTTP depending on user info
   useEffect(() => {
     async function loadCalls() {
+      if (!userInfo) return; // Wait for user info to be loaded
+
+      const metadata = userInfo.user_metadata || {};
+      const tenantId = metadata.tenant_id || "demo-client";
+      const role = metadata.role || "admin";
+
+      // Determine API URL
+      // If agent, filter by their Supabase UUID (user.id) or username depending on how backend stores it
+      // We will assume backend stores the Supabase User ID (UUID) if assigned
+      // Or we can pass it, and if no calls match, so be it.
+      let url = `${backendUrl}/api/${tenantId}/calls`;
+
+      if (role === 'user') {
+        // Pass the user's ID as user_id filter
+        // Note: Backend must support this query param
+        url += `?user_id=${userInfo.id}`;
+      }
+
+      console.log("Fetching calls from:", url);
+
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`${backendUrl}/api/demo-client/calls`);
+        const res = await fetch(url);
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -115,13 +134,13 @@ const CallDashboard: React.FC = () => {
     }
 
     loadCalls();
-  }, []);
+  }, [userInfo]); // Re-run when userInfo loads
 
-  // EFFECT: Load user email
+  // EFFECT: Load user info
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) {
-        setUserEmail(user.email);
+      if (user) {
+        setUserInfo(user);
       }
     });
   }, []);
@@ -245,7 +264,14 @@ const CallDashboard: React.FC = () => {
   // EFFECT 2: WebSocket connection for real-time dashboard updates
   // This effect runs ONCE on mount and stays open until component unmounts
   useEffect(() => {
-    const wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+    let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+
+    // Auth: Pass user_id, role, and tenant_id if valid user
+    if (userInfo && userInfo.id) {
+      const metadata = userInfo.user_metadata || {};
+      wsUrl += `?user_id=${userInfo.id}&role=${metadata.role || 'user'}&tenant_id=${metadata.tenant_id || 'demo-client'}`;
+    }
+
     console.log("Connecting WebSocket to:", wsUrl);
 
     // Create WebSocket connection that will stay open for entire session
@@ -307,7 +333,7 @@ const CallDashboard: React.FC = () => {
       ws.close();
       wsRef.current = null;
     };
-  }, []); // Empty [] = run once on mount, cleanup on unmount
+  }, [userInfo]); // Re-run when userInfo loads (so we attach user_id to WS)
 
   // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
   // This runs whenever transcriptModalCallId CHANGES (user opens/closes transcript modal)
@@ -428,11 +454,15 @@ const CallDashboard: React.FC = () => {
               Live Monitoring
             </h1>
             <p className="text-sm text-slate-500">
-              Client: <span className="font-mono">demo-client</span>
+              Client: <span className="font-mono">{userInfo?.user_metadata?.tenant_id || 'connecting...'}</span>
             </p>
-            {userEmail && (
+            {userInfo && (
               <p className="text-sm text-slate-500">
-                Welcome: <span className="font-medium text-slate-700">{userEmail}</span>
+                Welcome: <span className="font-medium text-slate-700">{userInfo.user_metadata?.display_name || userInfo.user_metadata?.username || userInfo.email}</span>
+                <span className="mx-2 text-slate-300">|</span>
+                Tenant: <span className="font-medium text-slate-700">{userInfo.user_metadata?.tenant_id}</span>
+                <span className="mx-2 text-slate-300">|</span>
+                Role: <span className="uppercase text-xs tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded ml-1">{userInfo.user_metadata?.role || 'admin'}</span>
               </p>
             )}
           </div>

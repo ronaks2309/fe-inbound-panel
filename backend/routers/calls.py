@@ -23,6 +23,7 @@ class CallListResponse(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     cost: Optional[float] = None
+    user_id: Optional[str] = None
     recording_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -41,7 +42,7 @@ class CallDetailResponse(CallListResponse):
 
 
 @router.get("/api/{client_id}/calls", response_model=List[CallListResponse])
-def listCalls(client_id: str, session: Session = Depends(get_session)):
+def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = Depends(get_session)):
     """
     List calls for a specific client.
     Returns lightweight call summaries without heavy transcript/summary fields.
@@ -49,8 +50,12 @@ def listCalls(client_id: str, session: Session = Depends(get_session)):
     stmt = (
         select(Call)
         .where(Call.client_id == client_id)
-        .order_by(Call.created_at.desc())
     )
+    
+    if user_id:
+        stmt = stmt.where(Call.user_id == user_id)
+        
+    stmt = stmt.order_by(Call.created_at.desc())
     calls = session.exec(stmt).all()
     
     # Build response list with explicit fields
@@ -64,6 +69,7 @@ def listCalls(client_id: str, session: Session = Depends(get_session)):
             started_at=c.started_at,
             ended_at=c.ended_at,
             cost=c.cost,
+            user_id=c.user_id,
             recording_url=c.recording_url,
             created_at=c.created_at,
             updated_at=c.updated_at,
@@ -98,6 +104,7 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
         started_at=call.started_at,
         ended_at=call.ended_at,
         cost=call.cost,
+        user_id=call.user_id,
         recording_url=call.recording_url,
         created_at=call.created_at,
         updated_at=call.updated_at,
