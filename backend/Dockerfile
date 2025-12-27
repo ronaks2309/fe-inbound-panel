@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Fix for Supabase/Docker IPv6 issues: Prefer IPv4
-RUN grep -q "precedence ::ffff:0:0/96  100" /etc/gai.conf || echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf
+# Fix for Supabase/Docker IPv6 issues: Force IPv4 precedence
+RUN echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf 
+# Check if it worked (optional debug step during build)
+RUN cat /etc/gai.conf
 
 # Copy requirements first (for caching layers)
 COPY requirements.txt .
