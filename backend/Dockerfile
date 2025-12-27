@@ -7,10 +7,15 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies (needed for compiling some python packages like psycopg2)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Fix for Supabase/Docker IPv6 issues: Prefer IPv4
+RUN grep -q "precedence ::ffff:0:0/96  100" /etc/gai.conf || echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf
 
 # Copy requirements first (for caching layers)
 COPY requirements.txt .
