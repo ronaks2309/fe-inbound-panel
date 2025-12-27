@@ -17,31 +17,51 @@
  * - Force transfer to licensed agent
  */
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getFilteredRowModel,
+  createColumnHelper,
+  flexRender,
+  type SortingState,
+  getSortedRowModel
+} from "@tanstack/react-table";
+import {
+  List,
+  Activity,
+  ArrowUpRight,
+  AlertCircle,
+  MoreHorizontal,
+  Clock,
+  Filter
+} from "lucide-react";
+import { CallDetailSidebar } from "./CallDetailSidebar";
 import { TranscriptModal } from "./TranscriptModal";
 import { ListenModal } from "./ListenModal";
 import { RecordingModal } from "./RecordingModal";
-import { supabase } from "../lib/supabase";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { cn } from "../lib/utils";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
 export type Call = {
   id: string;
-  client_id: string;
+  client_id?: string;
   phone_number?: string | null;
-  status?: string | null;
-  started_at?: string | null;
-  created_at: string; // Ensure this is present
-  ended_at?: string | null;
-  has_listen_url?: boolean;
-
-  user_id?: string | null;
-  username?: string | null;
-  duration?: number | null;
-
+  status: string | null;
+  started_at: string | null;
+  created_at: string; // mandatory fallback
+  ended_at: string | null;
+  has_listen_url: boolean;
+  user_id: string | null;
+  username: string | null;
+  duration?: number | null; // in seconds
   hasTranscript?: boolean;
   hasLiveTranscript?: boolean;
-  hasFinalTranscript?: boolean;  // Flag from backend
+  hasFinalTranscript?: boolean;
   hasRecording?: boolean;
   recording_url?: string | null;
 
@@ -50,26 +70,130 @@ export type Call = {
   final_transcript?: string | null;  // final transcript from end-of-call-report
   summary?: { summary: string } | null;
   detailsLoaded?: boolean; // flag to indicate if heavy fields are loaded
+  sentiment?: "positive" | "neutral" | "negative" | null; // Added for UI
 };
 
+// COLUMN DEFINITIONS
+const columnHelper = createColumnHelper<Call>();
 
-const CallDashboard: React.FC = () => {
+const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // STATE: useState creates reactive variables that trigger re-renders when changed
   // Pattern: [value, setValue] = useState(initialValue)
+  // STATE
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+
+  // Filter / Tab State
+  const [activeTab, setActiveTab] = useState<"all" | "live" | "transferred" | "followup">("all");
+
+  // TanStack Table State
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [rowSelection, setRowSelection] = useState({});
+
+  // Modals
   const [transcriptModalCallId, setTranscriptModalCallId] = useState<string | null>(null);
   const [listenModalCallId, setListenModalCallId] = useState<string | null>(null);
   const [recordingModalCallId, setRecordingModalCallId] = useState<string | null>(null);
   const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
   const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
   const [forceTransferError, setForceTransferError] = useState<string | null>(null);
-  const [userInfo, setUserInfo] = useState<any>(null); // Supabase user object
+  // const [userInfo, setUserInfo] = useState<any>(null); // Lifted to DashboardPage
 
+  // FILTER LOGIC
   // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
-  // Perfect for storing WebSocket connections, timers, or DOM references
   const wsRef = useRef<WebSocket | null>(null);
+
+  const { filteredCalls, counts } = useMemo(() => {
+    const counts = {
+      all: calls.length,
+      live: 0,
+      transferred: 0,
+      followup: 0
+    };
+
+    calls.forEach(c => {
+      const s = (c.status || "").toLowerCase();
+      if (["in-progress", "ringing", "queued"].includes(s)) counts.live++;
+      if (s === "transferred") counts.transferred++; // Assuming 'transferred' status
+      if (s === "follow-up" || (c.summary?.summary && c.summary.summary.toLowerCase().includes("follow up"))) counts.followup++; // Heuristic
+    });
+
+    const filtered = calls.filter(c => {
+      const s = (c.status || "").toLowerCase();
+      if (activeTab === "all") return true;
+      if (activeTab === "live") return ["in-progress", "ringing", "queued"].includes(s);
+      if (activeTab === "transferred") return s === "transferred";
+      if (activeTab === "followup") return s === "follow-up" || (c.summary?.summary && c.summary.summary.toLowerCase().includes("follow up"));
+      return true;
+    });
+
+    return { filteredCalls: filtered, counts };
+  }, [calls, activeTab]);
+
+  // COLUMNS CONFIGURATION
+  const columns = useMemo(() => [
+    columnHelper.accessor("id", {
+      header: "Call ID",
+      cell: (info) => <span className="font-mono text-xs text-slate-800">{info.getValue()}</span>,
+    }),
+    columnHelper.accessor((row) => row.username || row.user_id || "-", {
+      id: "user",
+      header: "User",
+      cell: (info) => <span className="text-slate-800 text-xs">{info.getValue()}</span>,
+    }),
+    columnHelper.accessor("phone_number", {
+      header: "Phone",
+      cell: (info) => <span className="text-slate-800 text-xs">{info.getValue() || "-"}</span>,
+    }),
+    columnHelper.accessor("status", {
+      header: "Status",
+      cell: (info) => <StatusBadge status={info.getValue()} />,
+    }),
+    columnHelper.display({
+      id: "duration",
+      header: "Duration",
+      cell: (props) => (
+        <span className="text-slate-700 font-mono text-xs">
+          <DurationTimer call={props.row.original} />
+        </span>
+      ),
+    }),
+    columnHelper.accessor("started_at", {
+      header: "Started At",
+      cell: (info) => {
+        const val = info.getValue();
+        return <span className="text-slate-700 text-xs">{val ? new Date(val).toLocaleString() : "-"}</span>;
+      },
+    }),
+    columnHelper.display({
+      id: "actions",
+      header: "Actions",
+      cell: (props) => renderActions(props.row.original),
+    }),
+  ], [calls]); // Re-create if calls mostly for the renderActions closure if needed, though row.original passes fresh data
+
+  // TANSTACK TABLE INSTANCE
+  const table = useReactTable({
+    data: filteredCalls,
+    columns,
+    state: {
+      sorting,
+      rowSelection,
+    },
+    initialState: {
+      pagination: {
+        pageSize: 10,
+      },
+    },
+    onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+  });
 
 
 
@@ -147,13 +271,14 @@ const CallDashboard: React.FC = () => {
   }, [userInfo]); // Re-run when userInfo loads
 
   // EFFECT: Load user info
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setUserInfo(user);
-      }
-    });
-  }, []);
+  // EFFECT: Load user info - REMOVED (passed as prop)
+  // useEffect(() => {
+  //   supabase.auth.getUser().then(({ data: { user } }) => {
+  //     if (user) {
+  //       setUserInfo(user);
+  //     }
+  //   });
+  // }, []);
 
   // HELPER FUNCTION: Upsert (update or insert) a call from WebSocket payload
   // This merges new data from the server with existing call data in state
@@ -472,6 +597,7 @@ const CallDashboard: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center px-4 py-6">
       <div className="w-full max-w-6xl">
         {/* Header */}
+        {/* Header - COMMENTED OUT (Moved to Layout)
         <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">
@@ -497,22 +623,81 @@ const CallDashboard: React.FC = () => {
             </code>
           </div>
         </header>
+        */}
 
         {/* Main card */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-800">
-              Live Calls
-            </h2>
-            {loading && (
-              <span className="text-xs text-slate-400">
-                Loading…
-              </span>
-            )}
+          {/* Filter / Stats Bar */}
+          <div className="border-b border-slate-200 bg-white px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={activeTab === "all" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setActiveTab("all")}
+                className="gap-2"
+              >
+                <List size={16} className="text-slate-500" />
+                All Calls
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700">
+                  {counts.all}
+                </Badge>
+              </Button>
+
+              <Button
+                variant={activeTab === "live" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setActiveTab("live")}
+                className={cn("gap-2", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
+              >
+                <Activity size={16} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
+                Live
+                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
+                  {counts.live}
+                </Badge>
+              </Button>
+
+              <Button
+                variant={activeTab === "transferred" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setActiveTab("transferred")}
+                className={cn("gap-2", activeTab === "transferred" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+              >
+                <ArrowUpRight size={16} className={cn("text-slate-500", activeTab === "transferred" && "text-blue-600")} />
+                Transferred
+                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-blue-200 text-blue-800")}>
+                  {counts.transferred}
+                </Badge>
+              </Button>
+
+              <Button
+                variant={activeTab === "followup" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setActiveTab("followup")}
+                className={cn("gap-2", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
+              >
+                <AlertCircle size={16} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
+                Follow-up
+                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
+                  {counts.followup}
+                </Badge>
+              </Button>
+
+              <div className="ml-auto flex gap-2">
+                <Button variant="outline" size="icon" className="h-8 w-8">
+                  <Clock size={14} />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8">
+                  <Filter size={14} />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8">
+                  <MoreHorizontal size={14} />
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Content */}
-          <div className="p-4">
+          <div className="p-0"> {/* Remove padding to let table flush */}
             {error && (
               <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 Error: {error}
@@ -542,68 +727,100 @@ const CallDashboard: React.FC = () => {
               </p>
             )}
 
-            {!loading && !error && calls.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Call ID
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        User
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Phone
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Status
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Duration
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Started At
-                      </th>
-                      <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calls.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs text-slate-800">
-                          {c.id}
-                        </td>
-                        <td className="px-3 py-2 text-slate-800 text-xs">
-                          {c.username || c.user_id || "-"}
-                        </td>
-                        <td className="px-3 py-2 text-slate-800">
-                          {c.phone_number || "-"}
-                        </td>
-                        <td className="px-3 py-2">
-                          <StatusBadge status={c.status} />
-                        </td>
-                        <td className="px-3 py-2 text-slate-700 font-mono text-xs">
-                          <DurationTimer call={c} />
-                        </td>
-                        <td className="px-3 py-2 text-slate-700">
-                          {c.started_at
-                            ? new Date(c.started_at).toLocaleString()
-                            : "-"}
-                        </td>
-                        <td className="px-3 py-2">
-                          {renderActions(c)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+
+            {/* TANSTACK TABLE RENDER */}
+            {!loading && !error && filteredCalls.length > 0 && (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      {table.getHeaderGroups().map((headerGroup) => (
+                        <tr key={headerGroup.id} className="border-b border-slate-200 bg-slate-50">
+                          {headerGroup.headers.map((header) => (
+                            <th
+                              key={header.id}
+                              className="px-4 py-3 text-left font-semibold text-slate-600 text-xs uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {header.isPlaceholder
+                                ? null
+                                : flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext()
+                                )}
+                              {{
+                                asc: " 🔼",
+                                desc: " 🔽",
+                              }[header.column.getIsSorted() as string] ?? null}
+                            </th>
+                          ))}
+                        </tr>
+                      ))}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {table.getRowModel().rows.map((row) => (
+                        <tr
+                          key={row.id}
+                          className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                          onClick={() => setSelectedCallId(row.original.id)}
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* PAGINATION CONTROLS */}
+                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 sm:px-6">
+                  <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm text-slate-700">
+                        Showing{" "}
+                        <span className="font-medium">
+                          {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}
+                        </span>{" "}
+                        to{" "}
+                        <span className="font-medium">
+                          {Math.min(
+                            (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
+                            table.getFilteredRowModel().rows.length
+                          )}
+                        </span>{" "}
+                        of{" "}
+                        <span className="font-medium">{table.getFilteredRowModel().rows.length}</span>{" "}
+                        results
+                      </p>
+                    </div>
+                    <div>
+                      <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-l-md px-2 py-1.5"
+                          onClick={() => table.previousPage()}
+                          disabled={!table.getCanPreviousPage()}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-r-md px-2 py-1.5 ml-0"
+                          onClick={() => table.nextPage()}
+                          disabled={!table.getCanNextPage()}
+                        >
+                          Next
+                        </Button>
+                      </nav>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
 
@@ -637,6 +854,13 @@ const CallDashboard: React.FC = () => {
           onClose={() => setRecordingModalCallId(null)}
         />
       )}
+
+      {/* Call Detail Sidebar */}
+      <CallDetailSidebar
+        call={calls.find(c => c.id === selectedCallId) || null}
+        onClose={() => setSelectedCallId(null)}
+        onTakeOver={handleForceTransfer}
+      />
 
 
     </div>
