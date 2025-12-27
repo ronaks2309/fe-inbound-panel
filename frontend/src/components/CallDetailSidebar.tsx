@@ -1,28 +1,18 @@
 import React, { useState } from "react";
 import {
-    X,
-    Phone,
     Smile,
-    CheckCircle2,
-    Circle,
-    Clock,
     Volume2,
-    Play,
-    MicOff,
-    MessageSquare
 } from "lucide-react";
 import { Button } from "./ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import type { Call } from "./CallDashboard";
 
 
 interface CallDetailSidebarProps {
     call: Call | null;
     onClose: () => void;
-    onTakeOver?: (call: Call) => void;
 }
 
-export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose, onTakeOver }) => {
+export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose }) => {
     const [activeTab, setActiveTab] = useState<"transcript" | "summary" | "notes">("transcript");
     // const [isPlaying, setIsPlaying] = useState(false); // local state for audio player logic if needed
 
@@ -243,14 +233,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                             Whisper
                         </Button>
 
-                        <Button
-                            className="flex-1 gap-2 bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 hover:border-red-200 shadow-none"
-                            onClick={() => onTakeOver && onTakeOver(call)}
-                            disabled={!isActive}
-                        >
-                            <span className="w-2 h-2 rounded-full bg-red-500" />
-                            Take Over
-                        </Button>
+                        {/* Take Over Removed */}
 
                         <Button variant="outline" size="icon" className="w-12 border-slate-200 text-slate-500 hover:text-slate-700">
                             <span className="text-lg leading-none mb-2">...</span>

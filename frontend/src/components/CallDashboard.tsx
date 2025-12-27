@@ -26,19 +26,31 @@ import {
   createColumnHelper,
   flexRender,
   type SortingState,
-  getSortedRowModel
+  type ColumnFiltersState,
+  getSortedRowModel,
+  getFacetedUniqueValues,
+  getFacetedRowModel,
+  type FilterFn
 } from "@tanstack/react-table";
 import {
-  List,
-  Activity,
-  ArrowUpRight,
-  AlertCircle,
-  MoreHorizontal,
-  Clock,
   Copy,
   RefreshCw,
-  Download
+  Download,
+  Activity,
+  AlertCircle,
+  Smile,
+  List,
+  ArrowUpRight,
 } from "lucide-react";
+
+// NEW IMPORTS
+import { DataTableColumnHeader } from "./table/DataTableColumnHeader";
+import { DataTableFacetedFilter } from "./table/DataTableFacetedFilter";
+import { DataTableDateFilter } from "./table/DataTableDateFilter";
+import { DataTableNumberFilter } from "./table/DataTableNumberFilter";
+import { DataTableTextFilter } from "./table/DataTableTextFilter";
+
+// ... existing imports ...
 import { CallDetailSidebar } from "./CallDetailSidebar";
 import { TranscriptModal } from "./TranscriptModal";
 import { ListenModal } from "./ListenModal";
@@ -85,6 +97,36 @@ export type Call = {
   sentiment?: "positive" | "neutral" | "negative" | null; // Added for UI
 };
 
+// CUSTOM FILTER FUNCTIONS
+const dateRangeFilter: FilterFn<Call> = (row, columnId, value) => {
+  const dateStr = row.getValue(columnId) as string;
+  if (!dateStr) return false;
+  const date = new Date(dateStr).getTime();
+  const { start, end } = value || {}; // value is { start?: string, end?: string }
+
+  if (start) {
+    const startDate = new Date(start).getTime();
+    if (date < startDate) return false;
+  }
+  if (end) {
+    const endDate = new Date(end).getTime();
+    if (date > endDate) return false;
+  }
+  return true;
+};
+
+const numberRangeFilter: FilterFn<Call> = (row, columnId, value) => {
+  const num = row.getValue(columnId) as number;
+  const { min, max } = value || {}; // value is { min?: number, max?: number }
+
+  if (typeof num !== 'number') return false;
+
+  if (min !== undefined && num < min) return false;
+  if (max !== undefined && num > max) return false;
+  return true;
+};
+
+
 // COLUMN DEFINITIONS
 const columnHelper = createColumnHelper<Call>();
 
@@ -103,14 +145,13 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // TanStack Table State
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState({});
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]); // NEW: State for column filters
 
   // Modals
   const [transcriptModalCallId, setTranscriptModalCallId] = useState<string | null>(null);
   const [listenModalCallId, setListenModalCallId] = useState<string | null>(null);
   const [recordingModalCallId, setRecordingModalCallId] = useState<string | null>(null);
-  const [forceTransferLoadingId, setForceTransferLoadingId] = useState<string | null>(null);
-  const [forceTransferMessage, setForceTransferMessage] = useState<string | null>(null);
-  const [forceTransferError, setForceTransferError] = useState<string | null>(null);
+  // Force transfer state removed
   // const [userInfo, setUserInfo] = useState<any>(null); // Lifted to DashboardPage
 
   // FILTER LOGIC
@@ -147,7 +188,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // COLUMNS CONFIGURATION
   const columns = useMemo(() => [
     columnHelper.accessor("id", {
-      header: "Call ID",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Call ID" filterComponent={<DataTableTextFilter column={column} title="ID" />} />,
       cell: (info) => (
         <div className="group flex items-center gap-2">
           <span className="text-slate-600">#{info.getValue().slice(0, 8).toUpperCase()}...</span>
@@ -163,18 +204,49 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           </button>
         </div>
       ),
+      enableSorting: true,
+      enableHiding: false,
     }),
     columnHelper.accessor("phone_number", {
-      header: "Number",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Number" filterComponent={<DataTableTextFilter column={column} title="Phone" />} />,
       cell: (info) => <span className="font-medium text-slate-900">{formatPhoneNumber(info.getValue())}</span>,
     }),
     columnHelper.accessor((row) => row.username || row.user_id || "Unknown", {
       id: "customer",
-      header: "User Name",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="User Name"
+          filterComponent={
+            <DataTableFacetedFilter
+              column={column}
+              title="User"
+              options={[
+                // Dynamic options would be better, but for now we can rely on facets if we passed all unique values. 
+                // Or we can just extract unique users from the current data if we wanted to be explicit, 
+                // but DataTableFacetedFilter uses column.getFacetedUniqueValues() internally so it should "just work" 
+                // IF we enable faceted unique values in table options.
+                // We will pass generic common options or empty for it to auto-discover? 
+                // The component code loops `options`, so we DO need to provide them.
+                // Let's create a dynamic list from the data inside the `options` prop if possible or pre-calculate.
+                // However, inside `useMemo` of columns, `calls` dependency is present.
+                ...Array.from(new Set(calls.map(c => c.username || c.user_id || "Unknown"))).map(u => ({ label: u, value: u }))
+              ]}
+            />
+          }
+        />
+      ),
       cell: (info) => <span className="font-medium text-slate-900">{info.getValue()}</span>,
+      filterFn: "arrIncludesSome", // Allow multi-select
     }),
     columnHelper.accessor("created_at", {
-      header: "Call Time",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Call Time"
+          filterComponent={<DataTableDateFilter column={column} title="Date" />}
+        />
+      ),
       cell: (info) => {
         const date = new Date(info.getValue());
         return (
@@ -183,18 +255,42 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           </span>
         );
       },
+      filterFn: dateRangeFilter,
     }),
-    columnHelper.display({
+    columnHelper.accessor("duration", { // CHANGED to accessor for filtering
       id: "duration",
-      header: "Duration",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Duration"
+          filterComponent={<DataTableNumberFilter column={column} title="Duration (s)" />}
+        />
+      ),
       cell: (props) => (
         <span className="font-mono text-slate-900 font-medium">
           <DurationTimer call={props.row.original} />
         </span>
       ),
+      filterFn: numberRangeFilter,
     }),
     columnHelper.accessor("sentiment", {
-      header: "Sentiment",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Sentiment"
+          filterComponent={
+            <DataTableFacetedFilter
+              column={column}
+              title="Sentiment"
+              options={[
+                { label: "Positive", value: "positive", icon: Smile },
+                { label: "Neutral", value: "neutral", icon: Activity },
+                { label: "Negative", value: "negative", icon: AlertCircle }
+              ]}
+            />
+          }
+        />
+      ),
       cell: (info) => {
         const val = info.getValue() || "neutral";
         const styles = {
@@ -203,7 +299,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           negative: "bg-red-100 text-red-700"
         };
         const labels = {
-          positive: "98%", // Mocked based on design
+          positive: "98%",
           neutral: "50%",
           negative: "15%"
         };
@@ -213,11 +309,32 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           </Badge>
         );
       },
+      filterFn: "arrIncludesSome",
     }),
     columnHelper.accessor("status", {
-      header: "Disposition",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title="Disposition"
+          filterComponent={
+            <DataTableFacetedFilter
+              column={column}
+              title="Status"
+              options={[
+                { label: "Live", value: "in-progress" }, // Mapping to raw values
+                { label: "Completed", value: "completed" },
+                { label: "Resolved", value: "resolved" },
+                { label: "Transferred", value: "transferred" },
+                { label: "Follow-up", value: "follow-up" },
+              ]}
+            />
+          }
+        />
+      ),
       cell: (info) => <StatusBadge status={info.getValue()} />,
+      filterFn: "arrIncludesSome",
     }),
+    // ACTIONS COLUMN REMOVED AS REQUESTED
   ], [calls]); // Re-create if calls mostly for the renderActions closure if needed, though row.original passes fresh data
 
   // TANSTACK TABLE INSTANCE
@@ -226,6 +343,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     columns,
     state: {
       sorting,
+      columnFilters, // NEW
       rowSelection,
     },
     initialState: {
@@ -233,12 +351,16 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         pageSize: 10,
       },
     },
+    enableRowSelection: true, // Enable selection
     onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters, // NEW
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),       // NEW
+    getFacetedUniqueValues: getFacetedUniqueValues(), // NEW
   });
 
 
@@ -269,18 +391,6 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     link.click();
     document.body.removeChild(link);
   };
-
-  // HANDLER: Sort Toggle
-  const handleSortToggle = () => {
-    // Toggle between Date Desc and Date Asc
-    const current = sorting.find(s => s.id === 'created_at');
-    if (current && current.desc) {
-      setSorting([{ id: 'created_at', desc: false }]);
-    } else {
-      setSorting([{ id: 'created_at', desc: true }]);
-    }
-  };
-
 
   // EFFECT 1: Load initial calls via HTTP depending on user info
   useEffect(() => {
@@ -456,56 +566,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
   }
 
-  // 2.5) Helper: force transfer a call to a licensed agent
-  async function handleForceTransfer(call: Call) {
-    if (!call.id || !call.client_id) return;
-
-    // TODO: later make this configurable per client
-    const agentPhone = "+16504848853";
-
-    // Only allow on live-ish calls
-    const status = (call.status || "").toLowerCase();
-    if (!["in-progress", "ringing", "queued"].includes(status)) {
-      setForceTransferError("Force transfer is only available on live calls.");
-      return;
-    }
-
-    setForceTransferLoadingId(call.id);
-    setForceTransferMessage(null);
-    setForceTransferError(null);
-
-    try {
-      const res = await fetch(
-        `${backendUrl}/api/${call.client_id}/calls/${call.id}/force-transfer`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            agent_phone_number: agentPhone,
-            content: "Transferring your call now to a licensed agent.",
-          }),
-        }
-      );
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      console.log("Force transfer success:", data);
-      setForceTransferMessage(
-        `Transfer requested for call ${call.id} → ${agentPhone}`
-      );
-    } catch (e: any) {
-      console.error("Force transfer error:", e);
-      setForceTransferError(
-        e?.message || "Failed to request force transfer."
-      );
-    } finally {
-      setForceTransferLoadingId(null);
-    }
-  }
+  // Force transfer logic removed as Actions column is removed
+  // ...
 
 
   // EFFECT 2: WebSocket connection for real-time dashboard updates
@@ -611,84 +673,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
 
 
-  // HELPER RENDER FUNCTION: Returns JSX (looks like HTML but it's JavaScript XML)
-  // This keeps the main render clean by extracting complex UI logic into reusable pieces
-  // Called inside the main render for each call row: {renderActions(c)}
-  const renderActions = (c: Call) => {
-    const status = (c.status || "").toLowerCase();
-    const isEnded = status === "ended";
-    const canForceTransfer = ["in-progress", "ringing", "queued"].includes(status);
-    const isTransferring = forceTransferLoadingId === c.id;
-
-
-    if (isEnded) {
-      // Ended calls → Call Recording + View Transcript
-      return (
-        <div className="flex gap-2">
-          <button
-            className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-            disabled={!c.hasRecording}
-            onClick={() => {
-              console.log("Call Recording clicked for", c.id);
-              if (c.recording_url) {
-                setRecordingModalCallId(c.id);
-              }
-            }}
-          >
-            Call Recording
-          </button>
-          <button
-            className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-            disabled={!c.hasFinalTranscript && !c.hasLiveTranscript}
-            onClick={() => {
-              console.log("View Transcript clicked for", c.id);
-              setTranscriptModalCallId(c.id);
-            }}
-          >
-            View Transcript
-          </button>
-
-        </div>
-      );
-    }
-
-    // Active / pending calls → Listen, Transcript, Take Over
-    return (
-      <div className="flex gap-2">
-        <button
-          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-          disabled={!c.has_listen_url}
-          onClick={() => {
-            console.log("Listen clicked for", c.id);
-            setListenModalCallId(c.id);
-          }}
-        >
-          Listen
-        </button>
-        <button
-          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-          disabled={!c.hasLiveTranscript && !c.hasTranscript}
-          onClick={() => {
-            console.log("Transcript clicked for", c.id);
-            setTranscriptModalCallId(c.id);
-          }}
-        >
-          Transcript
-        </button>
-        <button
-          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-          disabled={!canForceTransfer || isTransferring}
-          onClick={() => {
-            console.log("Take Over clicked for", c.id);
-            handleForceTransfer(c);
-            // later: call backend endpoint that POSTs to Vapi controlUrl for this call
-          }}
-        >
-          {isTransferring ? "Transferring..." : "Take Over"}
-        </button>
-      </div>
-    );
-  };
+  // HELPER RENDER FUNCTION: Returns JSX (looks like HTML but it's JavaScript XML) - REMOVED (Actions column removed)
+  // const renderActions = (c: Call) => { ... }
 
   // RENDER FUNCTION: Returns JSX (HTML-like syntax) that React converts to DOM elements
   // React re-renders this when state changes (calls, loading, error, etc.)
@@ -800,18 +786,6 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
               </div>
             )}
 
-            {forceTransferMessage && (
-              <p className="mt-3 text-xs text-emerald-700">
-                {forceTransferMessage}
-              </p>
-            )}
-
-            {forceTransferError && (
-              <p className="mt-2 text-xs text-red-600">
-                {forceTransferError}
-              </p>
-            )}
-
 
             {!loading && !error && calls.length === 0 && (
               <p className="text-sm text-slate-500">
@@ -835,8 +809,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                           {headerGroup.headers.map((header) => (
                             <th
                               key={header.id}
-                              className="px-6 py-4 text-left font-bold text-slate-400 text-[11px] uppercase tracking-wider cursor-pointer hover:text-slate-600 transition-colors"
-                              onClick={header.column.getToggleSortingHandler()}
+                              className="px-4 py-3 text-left font-bold text-slate-400 text-[11px] uppercase tracking-wider whitespace-nowrap"
                             >
                               {header.isPlaceholder
                                 ? null
@@ -844,10 +817,6 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                                   header.column.columnDef.header,
                                   header.getContext()
                                 )}
-                              {{
-                                asc: " 🔼",
-                                desc: " 🔽",
-                              }[header.column.getIsSorted() as string] ?? null}
                             </th>
                           ))}
                         </tr>
@@ -861,7 +830,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                           onClick={() => setSelectedCallId(row.original.id)}
                         >
                           {row.getVisibleCells().map((cell) => (
-                            <td key={cell.id} className="px-6 py-2.5 whitespace-nowrap">
+                            <td key={cell.id} className="px-4 py-2.5 whitespace-nowrap">
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </td>
                           ))}
@@ -955,7 +924,6 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       <CallDetailSidebar
         call={calls.find(c => c.id === selectedCallId) || null}
         onClose={() => setSelectedCallId(null)}
-        onTakeOver={handleForceTransfer}
       />
 
 
