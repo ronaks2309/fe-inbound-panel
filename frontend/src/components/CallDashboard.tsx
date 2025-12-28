@@ -205,7 +205,19 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     }),
     columnHelper.accessor("phone_number", {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Number" filterComponent={<DataTableTextFilter column={column} title="Phone" />} />,
-      cell: (info) => <span className="font-medium text-slate-900">{formatPhoneNumber(info.getValue())}</span>,
+      cell: (info) => (
+        <div className="group flex items-center gap-1.5">
+          <span className="font-medium text-slate-900">{formatPhoneNumber(info.getValue())}</span>
+          {info.getValue() && (
+            <CopyButton
+              textToCopy={info.getValue() || ""}
+              title="Copy Number"
+              className="opacity-0 group-hover:opacity-100"
+              iconSize={12}
+            />
+          )}
+        </div>
+      ),
     }),
     columnHelper.accessor((row) => row.username || row.user_id || "Unknown", {
       id: "customer",

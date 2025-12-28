@@ -71,9 +71,19 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                 <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-start">
                     <div className="flex-1 min-w-0 pr-4">
                         {/* Title: Phone Number */}
-                        <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">
-                            {call.phone_number || "Unknown Number"}
-                        </h2>
+                        <div className="group flex items-center gap-2">
+                            <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">
+                                {call.phone_number || "Unknown Number"}
+                            </h2>
+                            {call.phone_number && (
+                                <CopyButton
+                                    textToCopy={call.phone_number}
+                                    title="Copy Number"
+                                    className="opacity-0 group-hover:opacity-100 mt-0.5"
+                                    iconSize={14}
+                                />
+                            )}
+                        </div>
                         {/* Sub-header: User Name & ID */}
                         <div className="flex items-center gap-2 text-xs text-slate-500 mt-1.5 flex-wrap">
                             <span className="font-medium text-slate-700 whitespace-nowrap">
@@ -237,8 +247,8 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                                         return (
                                             <div key={stage} className="flex items-start gap-4">
                                                 <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors z-0 ${isCompleted ? "bg-blue-600 border-blue-600 text-white" :
-                                                        isCurrent ? "bg-white border-blue-600 text-blue-600 ring-4 ring-blue-50" :
-                                                            "bg-white border-slate-200 text-slate-300"
+                                                    isCurrent ? "bg-white border-blue-600 text-blue-600 ring-4 ring-blue-50" :
+                                                        "bg-white border-slate-200 text-slate-300"
                                                     }`}>
                                                     {isCompleted ? (
                                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
