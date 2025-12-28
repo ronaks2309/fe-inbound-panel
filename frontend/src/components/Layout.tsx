@@ -1,8 +1,17 @@
 import React from "react";
-import { Bell, LayoutGrid } from "lucide-react";
+import { Bell, LayoutGrid, LogOut, User } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { supabase } from "../lib/supabase";
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -14,6 +23,16 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
+
+    const handleLogout = async () => {
+        // Sign out from Supabase
+        await supabase.auth.signOut();
+        // Redirect to login/home
+        // Since we are in SPA, we might need to rely on Auth state change listener in App.tsx to redirect,
+        // or force a window location change.
+        window.location.href = "/";
+    };
+
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             {/* Top Navigation Bar */}
@@ -60,13 +79,41 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
                             <Bell size={20} />
                         </Button>
 
-                        {/* User Profile */}
-                        <Avatar className="h-9 w-9 border border-slate-200 cursor-pointer">
-                            <AvatarImage src={user?.avatar_url} />
-                            <AvatarFallback className="bg-slate-800 text-white text-xs">
-                                {user?.email?.charAt(0).toUpperCase() || "U"}
-                            </AvatarFallback>
-                        </Avatar>
+                        {/* User Profile Dropdown */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Avatar className="h-9 w-9 border border-slate-200 cursor-pointer hover:ring-2 hover:ring-slate-100 transition-all">
+                                    <AvatarImage src={user?.avatar_url} />
+                                    <AvatarFallback className="bg-slate-800 text-white text-xs">
+                                        {user?.email?.charAt(0).toUpperCase() || "U"}
+                                    </AvatarFallback>
+                                </Avatar>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                                <DropdownMenuLabel>
+                                    <div className="flex flex-col space-y-1">
+                                        <p className="text-sm font-medium leading-none">{user?.display_name || "User"}</p>
+                                        <p className="text-xs leading-none text-muted-foreground text-slate-500 font-normal">
+                                            {user?.email}
+                                        </p>
+                                    </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem>
+                                    <User className="mr-2 h-4 w-4" />
+                                    <span>Profile</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem>
+                                    <Bell className="mr-2 h-4 w-4" />
+                                    <span>Notifications</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                                    <LogOut className="mr-2 h-4 w-4" />
+                                    <span>Log out</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </div>
             </header>
