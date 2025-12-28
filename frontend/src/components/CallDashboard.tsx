@@ -33,7 +33,6 @@ import {
   type FilterFn
 } from "@tanstack/react-table";
 import {
-  Copy,
   RefreshCw,
   Download,
   Activity,
@@ -52,6 +51,7 @@ import { DataTableTextFilter } from "./table/DataTableTextFilter";
 
 // ... existing imports ...
 import { CallDetailSidebar } from "./CallDetailSidebar";
+import { CopyButton } from "./CopyButton";
 import { TranscriptModal } from "./TranscriptModal";
 import { ListenModal } from "./ListenModal";
 import { RecordingModal } from "./RecordingModal";
@@ -192,16 +192,12 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       cell: (info) => (
         <div className="group flex items-center gap-2">
           <span className="text-slate-600">#{info.getValue().slice(0, 8).toUpperCase()}...</span>
-          <button
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(info.getValue());
-            }}
+          <CopyButton
+            textToCopy={info.getValue()}
             title="Copy Call ID"
-          >
-            <Copy size={12} />
-          </button>
+            className="opacity-0 group-hover:opacity-100"
+            iconSize={12}
+          />
         </div>
       ),
       enableSorting: true,

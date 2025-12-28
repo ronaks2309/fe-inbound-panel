@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
     X,
-    Copy,
     Star,
     MessageSquare,
     Mic,
@@ -9,6 +8,7 @@ import {
     Volume2,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { CopyButton } from "./CopyButton";
 import {
     Popover,
     PopoverContent,
@@ -39,13 +39,6 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     // Progress Stages (Horizontal) - moved to Tab
     const stages = ["Identity", "Discovery", "Solution", "Close"];
     const currentStageIndex = 1; // Mocked: "Discovery"
-
-    const handleCopyId = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (call?.id) {
-            navigator.clipboard.writeText(call.id);
-        }
-    };
 
     const handleSaveFeedback = () => {
         console.log("Saving feedback:", { rating: feedbackRating, text: feedbackText, callId: call.id });
@@ -87,14 +80,14 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                                 Username: <span className="font-normal text-slate-500">{call.username || "Unknown"}</span>
                             </span>
                             <span className="text-slate-300">|</span>
-                            <div className="group flex items-center gap-1.5 whitespace-nowrap cursor-pointer" onClick={handleCopyId}>
+                            {/* Call ID Group */}
+                            <div className="group flex items-center gap-1.5 whitespace-nowrap relative select-none">
                                 <span>Call ID: <span className="font-mono">{call.id.slice(0, 8)}...</span></span>
-                                <button
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                                <CopyButton
+                                    textToCopy={call.id}
                                     title="Copy Call ID"
-                                >
-                                    <Copy size={10} />
-                                </button>
+                                    className="opacity-0 group-hover:opacity-100"
+                                />
                             </div>
                         </div>
                     </div>
