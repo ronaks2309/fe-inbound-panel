@@ -1,31 +1,13 @@
 import React, { useEffect, useState, useRef } from "react";
+import type { Call } from "./CallDashboard";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
-export type Call = {
-    id: string;
-    client_id: string;
-    phone_number?: string | null;
-    status?: string | null;
-    started_at?: string | null;
-    created_at: string;
-    ended_at?: string | null;
-    has_listen_url?: boolean;
-    hasTranscript?: boolean;
-    hasLiveTranscript?: boolean;
-    hasRecording?: boolean;
-    recording_url?: string | null;
-    live_transcript?: string | null;
-    final_transcript?: string | null;
-    summary?: { summary: string } | null;
-    detailsLoaded?: boolean;
-};
-
-type TranscriptModalProps = {
+interface TranscriptModalProps {
     call: Call | null;
     onClose: () => void;
-    onCallUpdated: (call: Call) => void;
-};
+    onCallUpdated: (updatedCall: Call) => void;
+}
 
 export const TranscriptModal: React.FC<TranscriptModalProps> = ({ call, onClose, onCallUpdated }) => {
     const [fetching, setFetching] = useState(false);
