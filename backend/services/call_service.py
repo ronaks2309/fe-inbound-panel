@@ -173,6 +173,8 @@ class CallService:
                 "hasRecording": bool(call.recording_url),
                 "username": call.username,
                 "duration": call.duration,
+                "sentiment": call.sentiment,
+                "disposition": call.disposition,
             }
         }, user_id=user_id)
 
@@ -293,6 +295,8 @@ class CallService:
                     "hasRecording": bool(call.recording_url),
                     "username": call.username,
                     "duration": call.duration,
+                    "sentiment": call.sentiment,
+                    "disposition": call.disposition,
                 }
             }, user_id=user_id)
 

@@ -40,6 +40,9 @@ import {
   Smile,
   List,
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
 } from "lucide-react";
 
 // NEW IMPORTS
@@ -301,7 +304,12 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         />
       ),
       cell: (info) => {
-        const val = info.getValue() || "neutral";
+        const val = info.getValue();
+
+        if (!val) {
+          return <span className="text-slate-400 italic">N/A</span>;
+        }
+
         const styles = {
           positive: "bg-emerald-100 text-emerald-700",
           neutral: "bg-slate-100 text-slate-700",
@@ -365,12 +373,40 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           );
         }
 
-        // Normal disposition badge
-        let classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-slate-50 text-slate-600 border-slate-200";
-        if (val === 'Qualified') classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-blue-50 text-blue-700 border-blue-100";
-        if (val === 'Not Qualified') classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-slate-100 text-slate-500 border-slate-200";
+        if (!val || val === "Unknown") {
+          return <span className="text-slate-400 italic">N/A</span>;
+        }
 
-        return <span className={classes}>{val}</span>;
+        // Normalize string for display
+        // 1. Replace underscores with spaces
+        // 2. Capitalize first letter of each word
+        const displayVal = (val as string)
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, c => c.toUpperCase());
+
+        const normalizedKey = (val as string).toLowerCase().trim().replace(/ /g, "_");
+
+        // Color mapping
+        const colorStyles: Record<string, string> = {
+          "qualified": "bg-emerald-100 text-emerald-800 border-emerald-200",
+          "disqualified": "bg-slate-100 text-slate-700 border-slate-200",
+          "incomplete_call": "bg-orange-50 text-orange-700 border-orange-100",
+          "follow_up_needed": "bg-amber-100 text-amber-800 border-amber-200",
+          "callback_requested": "bg-blue-50 text-blue-700 border-blue-100",
+          "transferred": "bg-violet-50 text-violet-700 border-violet-100",
+          "do_not_call": "bg-red-50 text-red-700 border-red-100",
+        };
+
+        // Fallback for unknown keys
+        const styleClass = colorStyles[normalizedKey]
+          || colorStyles[normalizedKey.replace(/_/g, " ")] // fallback try without underscores if key had spaces
+          || "bg-slate-50 text-slate-600 border-slate-200";
+
+        return (
+          <span className={cn("inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold border shadow-sm whitespace-nowrap", styleClass)}>
+            {displayVal}
+          </span>
+        );
       },
       filterFn: "arrIncludesSome",
     }),
@@ -402,6 +438,47 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     getFacetedRowModel: getFacetedRowModel(),       // NEW
     getFacetedUniqueValues: getFacetedUniqueValues(), // NEW
   });
+
+  // PAGINATION HELPER
+  const paginationRange = useMemo(() => {
+    const currentPage = table.getState().pagination.pageIndex + 1;
+    const pageCount = table.getPageCount();
+    const siblingCount = 1;
+
+    // 1. Total pages less than 7 -> show all
+    if (pageCount <= 7) {
+      return Array.from({ length: pageCount }, (_, i) => i + 1);
+    }
+
+    // 2. Complex ranges
+    const leftSiblingIndex = Math.max(currentPage - siblingCount, 1);
+    const rightSiblingIndex = Math.min(currentPage + siblingCount, pageCount);
+
+    const shouldShowLeftDots = leftSiblingIndex > 2;
+    const shouldShowRightDots = rightSiblingIndex < pageCount - 2;
+
+    const firstPageIndex = 1;
+    const lastPageIndex = pageCount;
+
+    if (!shouldShowLeftDots && shouldShowRightDots) {
+      let leftItemCount = 3 + 2 * siblingCount;
+      let leftRange = Array.from({ length: leftItemCount }, (_, i) => i + 1);
+      return [...leftRange, '...', pageCount];
+    }
+
+    if (shouldShowLeftDots && !shouldShowRightDots) {
+      let rightItemCount = 3 + 2 * siblingCount;
+      let rightRange = Array.from({ length: rightItemCount }, (_, i) => pageCount - rightItemCount + i + 1);
+      return [firstPageIndex, '...', ...rightRange];
+    }
+
+    if (shouldShowLeftDots && shouldShowRightDots) {
+      let middleRange = Array.from({ length: rightSiblingIndex - leftSiblingIndex + 1 }, (_, i) => leftSiblingIndex + i);
+      return [firstPageIndex, '...', ...middleRange, '...', lastPageIndex];
+    }
+
+    return [];
+  }, [table.getState().pagination.pageIndex, table.getPageCount()]);
 
 
 
@@ -466,23 +543,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
         // Normalize/derive flags from backend fields
         const normalized: Call[] = data.map((c: any) => {
-          // Mock random status/sentiment for visualization
-          // Only randomize if status is 'ended' or 'completed' to preserve 'live' calls
-          let finalStatus = c.status;
-          if (!finalStatus || finalStatus === 'ended' || finalStatus === 'completed') {
-            // Weighted distribution for better demo visual
-            const outcomeStatuses = ["completed", "follow-up", "transferred", "completed", "completed"];
-            finalStatus = outcomeStatuses[Math.floor(Math.random() * outcomeStatuses.length)];
-          }
-
-          const randomSentimentScore = Math.floor(Math.random() * 100);
-          const derivedSentiment = randomSentimentScore > 80 ? "positive" : randomSentimentScore > 40 ? "neutral" : "negative";
-
           return {
             id: String(c.id),
             client_id: c.client_id,
             phone_number: c.phone_number ?? c.phoneNumber ?? null,
-            status: finalStatus, // Use diversified status
+            status: c.status,
             started_at: c.started_at ?? c.startedAt ?? null,
             created_at: c.created_at ?? new Date().toISOString(), // Fallback if missing
             ended_at: c.ended_at ?? c.endedAt ?? null,
@@ -503,7 +568,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
             final_transcript: c.final_transcript ?? null,
 
             detailsLoaded: false,
-            sentiment: c.sentiment || derivedSentiment,
+            sentiment: c.sentiment || null,
             disposition: c.disposition || null
           };
         });
@@ -759,17 +824,17 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         {/* Main card */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200">
           {/* Filter / Stats Bar */}
-          <div className="border-b border-slate-200 bg-white px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="border-b border-slate-200 bg-white px-3 py-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               <Button
                 variant={activeTab === "all" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setActiveTab("all")}
-                className="gap-2"
+                className="h-7 px-2 text-xs gap-1.5 font-medium"
               >
-                <List size={16} className="text-slate-500" />
+                <List size={14} className="text-slate-500" />
                 All Calls
-                <Badge variant="secondary" className="ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700">
+                <Badge variant="secondary" className="ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700">
                   {counts.all}
                 </Badge>
               </Button>
@@ -778,11 +843,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 variant={activeTab === "live" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setActiveTab("live")}
-                className={cn("gap-2", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
+                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
               >
-                <Activity size={16} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
+                <Activity size={14} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
                 Live
-                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
+                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
                   {counts.live}
                 </Badge>
               </Button>
@@ -791,11 +856,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 variant={activeTab === "transferred" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setActiveTab("transferred")}
-                className={cn("gap-2", activeTab === "transferred" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "transferred" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
               >
-                <ArrowUpRight size={16} className={cn("text-slate-500", activeTab === "transferred" && "text-blue-600")} />
+                <ArrowUpRight size={14} className={cn("text-slate-500", activeTab === "transferred" && "text-blue-600")} />
                 Transferred
-                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-blue-200 text-blue-800")}>
+                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-blue-200 text-blue-800")}>
                   {counts.transferred}
                 </Badge>
               </Button>
@@ -804,21 +869,21 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 variant={activeTab === "followup" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setActiveTab("followup")}
-                className={cn("gap-2", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
+                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
               >
-                <AlertCircle size={16} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
+                <AlertCircle size={14} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
                 Follow-up
-                <Badge variant="secondary" className={cn("ml-1 px-1.5 py-0 min-w-[20px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
+                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
                   {counts.followup}
                 </Badge>
               </Button>
 
-              <div className="ml-auto flex gap-2">
-                <Button variant="outline" size="icon" className="h-9 w-9 text-slate-500 hover:text-slate-700" title="Refresh List" onClick={() => window.location.reload()}>
-                  <RefreshCw size={15} />
+              <div className="ml-auto flex gap-1">
+                <Button variant="outline" size="icon" className="h-7 w-7 text-slate-500 hover:text-slate-700" title="Refresh List" onClick={() => window.location.reload()}>
+                  <RefreshCw size={13} />
                 </Button>
-                <Button variant="outline" size="icon" className="h-9 w-9 text-slate-500 hover:text-slate-700" title="Download CSV" onClick={handleDownloadCSV}>
-                  <Download size={15} />
+                <Button variant="outline" size="icon" className="h-7 w-7 text-slate-500 hover:text-slate-700" title="Download CSV" onClick={handleDownloadCSV}>
+                  <Download size={13} />
                 </Button>
               </div>
             </div>
@@ -851,11 +916,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                   <table className="min-w-full text-sm">
                     <thead>
                       {table.getHeaderGroups().map((headerGroup) => (
-                        <tr key={headerGroup.id} className="border-b border-slate-200 bg-blue-50/30">
+                        <tr key={headerGroup.id} className="border-b border-slate-200 bg-slate-100">
                           {headerGroup.headers.map((header) => (
                             <th
                               key={header.id}
-                              className="px-4 py-3 text-left font-bold text-slate-400 text-[11px] uppercase tracking-wider whitespace-nowrap"
+                              className="px-3 py-1.5 text-left font-bold text-slate-700 text-[11px] uppercase tracking-wider whitespace-nowrap"
                             >
                               {header.isPlaceholder
                                 ? null
@@ -872,11 +937,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                       {table.getRowModel().rows.map((row) => (
                         <tr
                           key={row.id}
-                          className="hover:bg-blue-50/50 transition-colors group cursor-pointer h-12"
+                          className="hover:bg-blue-50/50 transition-colors group cursor-pointer h-10"
                           onClick={() => setSelectedCallId(row.original.id)}
                         >
                           {row.getVisibleCells().map((cell) => (
-                            <td key={cell.id} className="px-4 py-2.5 whitespace-nowrap">
+                            <td key={cell.id} className="px-3 py-1.5 whitespace-nowrap">
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </td>
                           ))}
@@ -888,47 +953,64 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
                 {/* PAGINATION CONTROLS */}
                 <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 sm:px-6">
-                  <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm text-slate-700">
-                        Showing{" "}
-                        <span className="font-medium">
-                          {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}
-                        </span>{" "}
-                        to{" "}
-                        <span className="font-medium">
-                          {Math.min(
-                            (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
-                            table.getFilteredRowModel().rows.length
-                          )}
-                        </span>{" "}
-                        of{" "}
-                        <span className="font-medium">{table.getFilteredRowModel().rows.length}</span>{" "}
-                        results
-                      </p>
+                  {/* Info Text */}
+                  <div className="hidden sm:block">
+                    <p className="text-sm text-slate-500">
+                      Showing <span className="font-medium text-slate-900">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span> to <span className="font-medium text-slate-900">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)}</span> of <span className="font-medium text-slate-900">{table.getFilteredRowModel().rows.length}</span> results
+                    </p>
+                  </div>
+
+                  {/* Pagination Widget */}
+                  <div className="flex flex-1 items-center justify-end gap-x-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-slate-500 disabled:opacity-30"
+                      onClick={() => table.previousPage()}
+                      disabled={!table.getCanPreviousPage()}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    <div className="flex items-center gap-1">
+                      {paginationRange.map((page, idx) => {
+                        if (page === '...') {
+                          return (
+                            <div key={`dots-${idx}`} className="flex h-8 w-8 items-center justify-center text-slate-400">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </div>
+                          );
+                        }
+
+                        const isCurrent = (page as number) === (table.getState().pagination.pageIndex + 1);
+                        return (
+                          <Button
+                            key={page}
+                            variant={isCurrent ? "secondary" : "ghost"}
+                            size="sm"
+                            className={cn(
+                              "h-8 w-8 p-0 font-normal transition-all",
+                              isCurrent
+                                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 font-medium"
+                                : "text-slate-600 hover:bg-blue-50 hover:text-blue-600"
+                            )}
+                            onClick={() => table.setPageIndex((page as number) - 1)}
+                          >
+                            {page}
+                          </Button>
+                        );
+                      })}
                     </div>
-                    <div>
-                      <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-l-md px-2 py-1.5"
-                          onClick={() => table.previousPage()}
-                          disabled={!table.getCanPreviousPage()}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-r-md px-2 py-1.5 ml-0"
-                          onClick={() => table.nextPage()}
-                          disabled={!table.getCanNextPage()}
-                        >
-                          Next
-                        </Button>
-                      </nav>
-                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-slate-500 disabled:opacity-30"
+                      onClick={() => table.nextPage()}
+                      disabled={!table.getCanNextPage()}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </>

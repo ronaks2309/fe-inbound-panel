@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
     X,
     Star,
     MessageSquare,
     Mic,
     PhoneIncoming,
-    Volume2,
-    Play,
-    Pause,
     AlertTriangle,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -351,16 +348,13 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
             // Prepend backend URL if relative
             const src = call.recording_url.startsWith("http")
                 ? call.recording_url
-                : `${backendUrl}/recordings/${call.recording_url}`;
+                : `${backendUrl}/api/recordings/${call.recording_url}`;
 
             return (
-                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
-                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                        <Play size={16} className="ml-0.5" />
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-xs text-slate-500 mb-1">Call Recording</p>
-                        <audio controls src={src} className="w-full h-6" />
+                <div className="mt-2">
+                    <p className="text-xs font-medium text-slate-500 mb-2 px-1">Call Recording</p>
+                    <div className="bg-slate-50 border border-slate-100 rounded-lg p-2">
+                        <audio controls src={src} className="w-full h-8" />
                     </div>
                 </div>
             )
@@ -378,7 +372,6 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
 
 const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
     const [wsStatus, setWsStatus] = useState<"idle" | "connecting" | "open" | "closed" | "error">("idle");
-    const [isPlaying, setIsPlaying] = useState(true); // Auto-play by default
     const [error, setError] = useState<string | null>(null);
 
     // Logic from ListenModal
@@ -400,6 +393,7 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
             if (!AudioCtxCls) throw new Error("Web Audio API not supported");
 
             audioCtx = new AudioCtxCls({ sampleRate: 32000 }); // Vapi 16k
+            if (!audioCtx) throw new Error("Could not create AudioContext");
 
             filterNode = audioCtx.createBiquadFilter();
             filterNode.type = "lowpass";
@@ -418,7 +412,7 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
 
             ws.onopen = async () => {
                 setWsStatus("open");
-                if (audioCtx?.state === 'suspended') await audioCtx.resume();
+                if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
             };
 
             ws.onmessage = (event) => {

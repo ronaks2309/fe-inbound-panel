@@ -59,12 +59,38 @@ def health():
 @app.get("/api/recordings/{filename}")
 async def get_recording(filename: str):
     """
-    Serve recording files from the local filesystem.
+    Redirects to a temporary signed URL for the recording file in Supabase storage.
     """
-    file_path = os.path.join("recordings", filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Recording not found")
-    return FileResponse(file_path)
+    from services.supabase_service import supabase
+    from fastapi.responses import RedirectResponse
+
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase client not configured")
+
+    try:
+        bucket = os.getenv("SUPABASE_BUCKET", "recordings")
+        # create_signed_url returns { "signedURL": "..." } or similar depending on version
+        res = supabase.storage.from_(bucket).create_signed_url(filename, 3600) # 1 hour expiry
+        
+        signed_url = None
+        if isinstance(res, dict):
+             signed_url = res.get("signedURL")
+        elif isinstance(res, str):
+             # Some versions might return string? usually dict.
+             signed_url = res
+             
+        # Fallback if the lib returns the URL in a different dict key in future versions
+        if not signed_url and isinstance(res, dict) and "url" in res:
+            signed_url = res["url"]
+
+        if not signed_url:
+            print(f"[get_recording] Failed to get signed URL. Response: {res}")
+            raise HTTPException(status_code=404, detail="Could not generate access link")
+
+        return RedirectResponse(url=signed_url)
+    except Exception as e:
+        print(f"[get_recording] Error generating signed URL: {e}")
+        raise HTTPException(status_code=404, detail="Recording not found or access denied")
 
 # --- Register Routers --- #
 app.include_router(webhooks.router)

@@ -40,6 +40,10 @@ class CallListResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
+    # New fields
+    sentiment: Optional[str] = None
+    disposition: Optional[str] = None
+    
     # Computed boolean flags (not in DB model)
     hasListenUrl: bool
     hasLiveTranscript: bool
@@ -87,6 +91,9 @@ def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = 
             recording_url=c.recording_url,
             created_at=ensure_utc(c.created_at),
             updated_at=ensure_utc(c.updated_at),
+            # New fields
+            sentiment=c.sentiment,
+            disposition=c.disposition,
             # Computed flags
             hasListenUrl=bool(c.listen_url),
             hasLiveTranscript=bool(c.live_transcript),
@@ -124,6 +131,9 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
         recording_url=call.recording_url,
         created_at=ensure_utc(call.created_at),
         updated_at=ensure_utc(call.updated_at),
+        # New fields
+        sentiment=call.sentiment,
+        disposition=call.disposition,
         # Heavy fields (included for detail view)
         live_transcript=call.live_transcript,
         final_transcript=call.final_transcript,
