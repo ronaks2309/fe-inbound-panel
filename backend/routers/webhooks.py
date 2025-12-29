@@ -5,6 +5,11 @@ from sqlmodel import Session
 from database.connection import get_session
 from services.call_service import CallService
 
+import logging
+
+# Configure logger
+logger = logging.getLogger("uvicorn.error")
+
 router = APIRouter()
 
 @router.post("/webhooks/vprod/{client_id}")
@@ -24,8 +29,10 @@ async def vprod_server_webhook(
     3. end-of-call-*    -> final report (final transcript, recording URL, summary)
     """
 
+    logger.info(f"--- [Webhook] Received webhook for {client_id} ---")
     message = payload.get("message", payload)
     msg_type = (message.get("type") or "").lower()
+    logger.info(f"--- [Webhook] Message Type: {msg_type} ---")
 
     if msg_type == "status-update":
         return await CallService.handle_status_update(client_id, message, payload, session, user_id=x_user_id)

@@ -47,6 +47,10 @@ class Call(SQLModel, table=True):
         sa_column=Column(JSON)
     )
 
+    # NEW: Sentiment and Disposition
+    sentiment: Optional[str] = None
+    disposition: Optional[str] = None
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(
     default_factory=datetime.utcnow,

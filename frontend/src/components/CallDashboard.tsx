@@ -95,6 +95,7 @@ export type Call = {
   summary?: { summary: string } | null;
   detailsLoaded?: boolean; // flag to indicate if heavy fields are loaded
   sentiment?: "positive" | "neutral" | "negative" | null; // Added for UI
+  disposition?: string | null; // NEW: Disposition field
 };
 
 // CUSTOM FILTER FUNCTIONS
@@ -303,23 +304,32 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         const val = info.getValue() || "neutral";
         const styles = {
           positive: "bg-emerald-100 text-emerald-700",
-          neutral: "bg-amber-100 text-amber-700",
+          neutral: "bg-slate-100 text-slate-700",
           negative: "bg-red-100 text-red-700"
         };
-        const labels = {
-          positive: "98%",
-          neutral: "50%",
-          negative: "15%"
-        };
+        // Normalize
+        const normalizedVal = (val as string).toLowerCase();
+        const style = styles[normalizedVal as keyof typeof styles] || styles.neutral;
+
         return (
-          <Badge variant="outline" className={cn("border-0 font-bold", styles[val as keyof typeof styles] || styles.neutral)}>
-            {labels[val as keyof typeof labels] || "50%"}
+          <Badge variant="outline" className={cn("border-0 font-bold capitalize", style)}>
+            {val}
           </Badge>
         );
       },
       filterFn: "arrIncludesSome",
     }),
-    columnHelper.accessor("status", {
+
+    // MODIFIED: Disposition Column
+    // We use a custom accessor to handle the "Live" logic for sorting/filtering purposes if needed,
+    // or just strictly use the 'disposition' field and override generic cell dispatch.
+    // User requirement: "For calls that are 'in-progress', show the disposition as 'Live' ... extract from json ... store in data model"
+    columnHelper.accessor((row) => {
+      const s = (row.status || "").toLowerCase();
+      if (["in-progress", "ringing", "queued"].includes(s)) return "Live";
+      return row.disposition || row.status || "Unknown";
+    }, {
+      id: "disposition",
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
@@ -327,19 +337,41 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           filterComponent={
             <DataTableFacetedFilter
               column={column}
-              title="Status"
+              title="Disposition"
               options={[
-                { label: "Live", value: "in-progress" }, // Mapping to raw values
-                { label: "Completed", value: "completed" },
-                { label: "Resolved", value: "resolved" },
-                { label: "Transferred", value: "transferred" },
-                { label: "Follow-up", value: "follow-up" },
+                { label: "Live", value: "Live" },
+                { label: "Qualified", value: "Qualified" },
+                { label: "Not Qualified", value: "Not Qualified" },
+                { label: "Follow-up", value: "Follow-up" },
+                { label: "Completed", value: "Completed" },
               ]}
             />
           }
         />
       ),
-      cell: (info) => <StatusBadge status={info.getValue()} />,
+      cell: (info) => {
+        const val = info.getValue();
+        const row = info.row.original;
+        const s = (row.status || "").toLowerCase();
+        // Check if live
+        const isLive = ["in-progress", "ringing", "queued"].includes(s);
+
+        if (isLive) {
+          return (
+            <span className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-emerald-50 text-emerald-700 border-emerald-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
+              Live
+            </span>
+          );
+        }
+
+        // Normal disposition badge
+        let classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-slate-50 text-slate-600 border-slate-200";
+        if (val === 'Qualified') classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-blue-50 text-blue-700 border-blue-100";
+        if (val === 'Not Qualified') classes = "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-slate-100 text-slate-500 border-slate-200";
+
+        return <span className={classes}>{val}</span>;
+      },
       filterFn: "arrIncludesSome",
     }),
     // ACTIONS COLUMN REMOVED AS REQUESTED
@@ -471,7 +503,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
             final_transcript: c.final_transcript ?? null,
 
             detailsLoaded: false,
-            sentiment: c.sentiment || derivedSentiment
+            sentiment: c.sentiment || derivedSentiment,
+            disposition: c.disposition || null
           };
         });
 
@@ -526,6 +559,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         c.finalTranscript ?? c.final_transcript ?? undefined,
       live_transcript:
         c.liveTranscript ?? c.live_transcript ?? undefined,
+      sentiment: c.sentiment ?? undefined,
+      disposition: c.disposition ?? undefined,
     };
 
     // STATE UPDATE WITH CALLBACK: Use callback pattern when new state depends on old state
@@ -653,31 +688,34 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   }, [userInfo]); // Re-run when userInfo loads (so we attach user_id to WS)
 
   // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
-  // This runs whenever transcriptModalCallId CHANGES (user opens/closes transcript modal)
+  // This runs whenever transcriptModalCallId OR selectedCallId CHANGES
+  // We unified the logic to support both the legacy modal and the new sidebar.
   useEffect(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    // When modal opens (transcriptModalCallId becomes a call ID), subscribe to that call
-    if (transcriptModalCallId) {
-      console.log(`[Dashboard] Subscribing to call ${transcriptModalCallId}`);
+    // Use either the modal ID or the sidebar ID
+    const targetCallId = transcriptModalCallId || selectedCallId;
+
+    // When a call is selected/opened, subscribe to it
+    if (targetCallId) {
+      console.log(`[Dashboard] Subscribing to call ${targetCallId}`);
       wsRef.current.send(JSON.stringify({
         type: "subscribe",
-        callId: transcriptModalCallId
+        callId: targetCallId
       }));
     }
 
-    // CLEANUP: When transcriptModalCallId changes or component unmounts, unsubscribe
-    // This runs BEFORE the next subscription and when modal closes
+    // CLEANUP: Unsubscribe when ID changes or unmounts
     return () => {
-      if (transcriptModalCallId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log(`[Dashboard] Unsubscribing from call ${transcriptModalCallId}`);
+      if (targetCallId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log(`[Dashboard] Unsubscribing from call ${targetCallId}`);
         wsRef.current.send(JSON.stringify({
           type: "unsubscribe",
-          callId: transcriptModalCallId
+          callId: targetCallId
         }));
       }
     };
-  }, [transcriptModalCallId]); // Dependency: re-run whenever transcriptModalCallId changes
+  }, [transcriptModalCallId, selectedCallId]); // Dependency: re-run whenever either changes
 
 
 
@@ -932,6 +970,9 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       <CallDetailSidebar
         call={calls.find(c => c.id === selectedCallId) || null}
         onClose={() => setSelectedCallId(null)}
+        onCallUpdated={(updatedCall) => {
+          setCalls(prev => prev.map(c => c.id === updatedCall.id ? updatedCall : c));
+        }}
       />
 
 
@@ -943,40 +984,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
 
 
-const StatusBadge: React.FC<{ status?: string | null }> = ({ status }) => {
-  const s = (status || "").toLowerCase();
 
-  let label = status || "unknown";
-  // Base classes: slightly rounded (rounded-md) instead of full pills
-  let classes =
-    "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm";
-
-  if (s === "in-progress" || s === "ringing" || s === "live") {
-    label = "Live";
-    classes += " bg-emerald-50 text-emerald-700 border-emerald-100";
-    // Add dot for live
-    return (
-      <span className={classes}>
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
-        {label}
-      </span>
-    )
-  } else if (s === "resolved" || s === "completed" || s === "ended") {
-    label = "Resolved";
-    classes += " bg-slate-50 text-slate-600 border-slate-200";
-  } else if (s === "follow-up") {
-    label = "Follow-up";
-    classes += " bg-amber-50 text-amber-700 border-amber-100";
-  } else if (s === "transferred") {
-    label = "Transferred";
-    classes += " bg-blue-50 text-blue-700 border-blue-100";
-  } else {
-    // Default fallback
-    classes += " bg-slate-50 text-slate-500 border-slate-200";
-  }
-
-  return <span className={classes}>{label}</span>;
-};
 
 const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
   const [elapsed, setElapsed] = useState<number | null>(null);

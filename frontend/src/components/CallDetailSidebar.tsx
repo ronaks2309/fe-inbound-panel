@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     X,
     Star,
@@ -6,6 +6,9 @@ import {
     Mic,
     PhoneIncoming,
     Volume2,
+    Play,
+    Pause,
+    AlertTriangle,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { CopyButton } from "./CopyButton";
@@ -16,16 +19,52 @@ import {
 } from "./ui/popover";
 import type { Call } from "./CallDashboard";
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
 interface CallDetailSidebarProps {
     call: Call | null;
     onClose: () => void;
+    onCallUpdated: (updatedCall: Call) => void;
 }
 
-export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose }) => {
+export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose, onCallUpdated }) => {
     const [activeTab, setActiveTab] = useState<"transcript" | "progress" | "summary" | "notes">("transcript");
     const [feedbackRating, setFeedbackRating] = useState<number>(0);
     const [feedbackText, setFeedbackText] = useState("");
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+    const [takingOver, setTakingOver] = useState(false);
+
+    // Fetch full details effect (from TranscriptModal)
+    useEffect(() => {
+        if (!call) return;
+        if (call.detailsLoaded) return;
+
+        console.log("Fetching full details for call:", call.id);
+        fetch(`${backendUrl}/api/calls/${call.id}`)
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to load details");
+                return res.json();
+            })
+            .then(data => {
+                const fullCall: Call = {
+                    ...call,
+                    ...data,
+                    started_at: call.started_at ?? data.started_at ?? data.startedAt,
+                    created_at: call.created_at ?? data.created_at ?? data.createdAt,
+                    live_transcript: data.live_transcript ?? data.liveTranscript,
+                    final_transcript: data.final_transcript ?? data.finalTranscript,
+                    summary: data.summary,
+                    detailsLoaded: true,
+                    // Ensure backend fields map even if snake_case
+                    recording_url: data.recording_url ?? data.recordingUrl ?? call.recording_url,
+                    has_listen_url: data.has_listen_url ?? data.hasListenUrl ?? call.has_listen_url,
+                    sentiment: data.sentiment ?? call.sentiment,
+                    disposition: data.disposition ?? call.disposition
+                };
+                onCallUpdated(fullCall);
+            })
+            .catch(err => console.error("Failed to fetch call details", err));
+    }, [call?.id]); // Only re-run if call ID changes, not on every prop update if loaded
 
     if (!call) return null;
 
@@ -43,17 +82,31 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     const handleSaveFeedback = () => {
         console.log("Saving feedback:", { rating: feedbackRating, text: feedbackText, callId: call.id });
         setIsFeedbackOpen(false);
-        // Reset after save
         setFeedbackRating(0);
         setFeedbackText("");
     };
 
-    // Helper to format duration
-    const formatDuration = (seconds?: number | null) => {
-        if (!seconds) return "00:00";
-        const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
-        return `${m}:${s.toString().padStart(2, '0')}`;
+    const handleTakeOver = async () => {
+        if (!confirm("Are you sure you want to take over this call? It will be transferred to your number.")) return;
+
+        setTakingOver(true);
+        try {
+            const res = await fetch(`${backendUrl}/api/${call.client_id || 'demo-client'}/calls/${call.id}/force-transfer`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    agent_phone_number: "+16504848853", // Hardcoded for demo/MVP
+                    content: "Taking over call now."
+                })
+            });
+            if (!res.ok) throw new Error("Transfer failed");
+            alert("Transfer initiated!");
+        } catch (e) {
+            console.error(e);
+            alert("Failed to takeover call.");
+        } finally {
+            setTakingOver(false);
+        }
     };
 
     return (
@@ -65,7 +118,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
             />
 
             {/* Sidebar Panel */}
-            <div className="fixed inset-y-0 right-0 w-[450px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out border-l border-slate-200 flex flex-col font-sans">
+            <div className="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out border-l border-slate-200 flex flex-col font-sans">
 
                 {/* HEADER */}
                 <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-start">
@@ -87,12 +140,12 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                         {/* Sub-header: User Name & ID */}
                         <div className="flex items-center gap-2 text-xs text-slate-500 mt-1.5 flex-wrap">
                             <span className="font-medium text-slate-700 whitespace-nowrap">
-                                Username: <span className="font-normal text-slate-500">{call.username || "Unknown"}</span>
+                                Username: <span className="font-normal text-slate-500">{call.username || call.user_id || "Unknown"}</span>
                             </span>
                             <span className="text-slate-300">|</span>
                             {/* Call ID Group */}
                             <div className="group flex items-center gap-1.5 whitespace-nowrap relative select-none">
-                                <span>Call ID: <span className="font-mono">{call.id.slice(0, 8)}...</span></span>
+                                <span>ID: <span className="font-mono">{call.id.slice(0, 8)}...</span></span>
                                 <CopyButton
                                     textToCopy={call.id}
                                     title="Copy Call ID"
@@ -110,39 +163,9 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                     </button>
                 </div>
 
-                {/* AUDIO WIDGET (Moved Up) */}
+                {/* AUDIO WIDGET */}
                 <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100">
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
-                        <button className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-50 border border-slate-100 text-slate-700 shadow-sm hover:border-slate-300 hover:shadow transition-all flex-shrink-0">
-                            {isActive ? <div className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse" /> : <div className="w-0 h-0 border-l-[10px] border-l-slate-700 border-y-[6px] border-y-transparent ml-1" />}
-                        </button>
-                        <div className="flex-1">
-                            {isActive ? (
-                                <div className="flex items-center gap-0.5 h-6 overflow-hidden">
-                                    {/* Fake waveform animation */}
-                                    {[...Array(24)].map((_, i) => (
-                                        <div key={i}
-                                            className="w-1 bg-blue-400 rounded-full animate-pulse flex-shrink-0"
-                                            style={{
-                                                height: `${Math.random() * 100}%`,
-                                                animationDelay: `${i * 0.05}s`
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="h-1 bg-slate-100 rounded-full w-full overflow-hidden relative">
-                                    <div className="absolute top-0 bottom-0 left-0 bg-slate-300 w-1/3 rounded-full" />
-                                </div>
-                            )}
-                        </div>
-                        <div className="text-xs font-mono text-slate-500 font-medium flex-shrink-0">
-                            {isActive ? <span className="text-red-500">LIVE</span> : formatDuration(call.duration)}
-                        </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-slate-600 flex-shrink-0">
-                            <Volume2 size={16} />
-                        </Button>
-                    </div>
+                    <AudioPlayer call={call} isActive={isActive} />
                 </div>
 
 
@@ -189,42 +212,10 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                             </div>
 
                             <div className="px-5 pb-6 space-y-4">
-                                {/* Agent bubble */}
-                                <div className="flex justify-start w-[90%]">
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-[9px] font-bold text-blue-600 uppercase ml-1 tracking-wide">AI Agent</span>
-                                        <div className="p-3 bg-white border border-slate-100 rounded-2xl rounded-tl-none shadow-sm text-[13px] text-slate-700 leading-relaxed">
-                                            Hello! I see you're query regarding the recent policy update. I can help you with that.
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Customer bubble */}
-                                <div className="flex justify-end w-full">
-                                    <div className="flex flex-col gap-1 items-end w-[90%]">
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase mr-1 tracking-wide">Customer</span>
-                                        <div className="p-3 bg-blue-600 border border-blue-600 rounded-2xl rounded-tr-none shadow-sm text-[13px] text-white leading-relaxed">
-                                            {isActive ? (
-                                                <p className="animate-pulse">Listening...</p>
-                                            ) : (
-                                                <p>Yes, I wanted to know if this covers dental as well?</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Live Transcript Stream Placeholder */}
-                                <div className="flex justify-start w-[90%] opacity-80">
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-[9px] font-bold text-blue-600 uppercase ml-1 tracking-wide">AI Agent</span>
-                                        <div className="p-3 bg-white border border-slate-100 rounded-2xl rounded-tl-none shadow-sm text-[13px] text-slate-700 leading-relaxed">
-                                            {transcriptText !== "No transcript available yet." ? (
-                                                <p>{transcriptText}</p>
-                                            ) : (
-                                                <p className="italic text-slate-400">Connecting to transcript stream...</p>
-                                            )}
-                                        </div>
-                                    </div>
+                                <div className="p-4 bg-white border border-slate-100 rounded-xl shadow-sm">
+                                    <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono leading-relaxed">
+                                        {transcriptText}
+                                    </pre>
                                 </div>
                             </div>
                         </>
@@ -294,9 +285,14 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                                 <Mic size={16} className="mr-2" />
                                 Whisper
                             </Button>
-                            <Button variant="outline" className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300">
+                            <Button
+                                variant="outline"
+                                className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                                onClick={handleTakeOver}
+                                disabled={takingOver}
+                            >
                                 <PhoneIncoming size={16} className="mr-2" />
-                                Take Over
+                                {takingOver ? "Transferring..." : "Take Over"}
                             </Button>
                         </div>
                     ) : (
@@ -346,3 +342,159 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
         </>
     );
 };
+
+// AUDIO PLAYER SUBCOMPONENT
+const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActive }) => {
+    // If ended, show standard recorded player
+    if (!isActive) {
+        if (call.recording_url) {
+            // Prepend backend URL if relative
+            const src = call.recording_url.startsWith("http")
+                ? call.recording_url
+                : `${backendUrl}/recordings/${call.recording_url}`;
+
+            return (
+                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                        <Play size={16} className="ml-0.5" />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-xs text-slate-500 mb-1">Call Recording</p>
+                        <audio controls src={src} className="w-full h-6" />
+                    </div>
+                </div>
+            )
+        }
+        return (
+            <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm opacity-60">
+                <div className="text-xs text-slate-400 italic">No recording available.</div>
+            </div>
+        );
+    }
+
+    // LIVE AUDIO PLAYER
+    return <LiveAudioStreamer call={call} />;
+};
+
+const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
+    const [wsStatus, setWsStatus] = useState<"idle" | "connecting" | "open" | "closed" | "error">("idle");
+    const [isPlaying, setIsPlaying] = useState(true); // Auto-play by default
+    const [error, setError] = useState<string | null>(null);
+
+    // Logic from ListenModal
+    useEffect(() => {
+        if (!call.has_listen_url) {
+            setError("No listen URL");
+            setWsStatus("error");
+            return;
+        }
+
+        let audioCtx: AudioContext | null = null;
+        let ws: WebSocket | null = null;
+        let filterNode: BiquadFilterNode;
+        let gainNode: GainNode;
+        let playHead = 0;
+
+        try {
+            const AudioCtxCls = (window as any).AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtxCls) throw new Error("Web Audio API not supported");
+
+            audioCtx = new AudioCtxCls({ sampleRate: 32000 }); // Vapi 16k
+
+            filterNode = audioCtx.createBiquadFilter();
+            filterNode.type = "lowpass";
+            filterNode.frequency.value = 6000;
+
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0.8;
+
+            filterNode.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}`;
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = "arraybuffer";
+            setWsStatus("connecting");
+
+            ws.onopen = async () => {
+                setWsStatus("open");
+                if (audioCtx?.state === 'suspended') await audioCtx.resume();
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data === "string") return;
+
+                if (!audioCtx) return;
+
+                try {
+                    const int16 = new Int16Array(event.data);
+                    const buffer = audioCtx.createBuffer(1, int16.length, 32000);
+                    const channel = buffer.getChannelData(0);
+                    for (let i = 0; i < int16.length; i++) {
+                        channel[i] = int16[i] / 32768;
+                    }
+
+                    const src = audioCtx.createBufferSource();
+                    src.buffer = buffer;
+                    src.connect(filterNode);
+
+                    const now = audioCtx.currentTime;
+                    if (playHead < now) playHead = now;
+                    src.start(playHead);
+                    playHead += buffer.duration;
+                } catch (e) {
+                    console.error("Audio decode error", e);
+                }
+            };
+
+            ws.onerror = () => {
+                setWsStatus("error");
+                setError("Connection failed");
+            };
+            ws.onclose = () => {
+                setWsStatus("closed");
+            };
+
+        } catch (e: any) {
+            setError(e.message);
+            setWsStatus("error");
+        }
+
+        return () => {
+            ws?.close();
+            audioCtx?.close();
+        };
+
+    }, [call.id, call.has_listen_url]);
+
+    return (
+        <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
+            <button
+                className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-50 border border-slate-100 text-slate-700 shadow-sm flex-shrink-0"
+            >
+                {wsStatus === 'open' ? (
+                    <div className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse" />
+                ) : (
+                    <AlertTriangle size={16} className="text-amber-500" />
+                )}
+            </button>
+            <div className="flex-1">
+                {/* Fake waveform for visual effect */}
+                <div className="flex items-center gap-0.5 h-6 overflow-hidden">
+                    {wsStatus === 'open' ? (
+                        [...Array(20)].map((_, i) => (
+                            <div key={i} className="w-1 bg-red-400 rounded-full animate-pulse" style={{ height: `${Math.random() * 100}%`, animationDelay: `${i * 0.1}s` }} />
+                        ))
+                    ) : (
+                        <span className="text-xs text-slate-400">
+                            {wsStatus === 'connecting' ? 'Connecting...' : error || 'Offline'}
+                        </span>
+                    )}
+                </div>
+            </div>
+            <div className="text-xs font-mono text-slate-500 font-medium flex-shrink-0">
+                LIVE
+            </div>
+        </div>
+    );
+}

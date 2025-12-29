@@ -197,6 +197,7 @@ class CallService:
         Handles 'transcript' messages (live transcript).
         Updates `call.live_transcript` and broadcasts real-time updates.
         """
+    
         call_data = message.get("call", {})
         call_id = call_data.get("id")
         if not call_id:
@@ -411,6 +412,40 @@ class CallService:
         
         call.ended_at = call.ended_at or now
 
+        # Extract sentiment and disposition from structuredOutputs (Primary)
+        # Logic: message -> artifact -> structuredOutputs
+        # We ignore 'analysis' fields as per user request.
+        sentiment = None
+        disposition = None
+        
+        artifact = message.get("artifact") or {}
+        structured_outputs = artifact.get("structuredOutputs") or {}
+        
+        if structured_outputs:
+            print(f"[CallService] Found structuredOutputs: {structured_outputs.keys()}")
+            
+            # structuredOutputs is a dict of UUID -> Object
+            for output in structured_outputs.values():
+                if not isinstance(output, dict):
+                    continue
+                    
+                name = (output.get("name") or "").lower().strip()
+                result = output.get("result")
+                
+                # Loose matching for robustness
+                if name == "call disposition" or "disposition" in name:
+                    disposition = result
+                elif name == "customer sentiment" or "sentiment" in name:
+                    sentiment = result
+        else:
+            print(f"[CallService] No structuredOutputs found in artifact. Artifact keys: {artifact.keys()}")
+
+        if sentiment:
+            call.sentiment = sentiment
+        if disposition:
+            call.disposition = disposition
+
+
         if cost is not None:
             call.cost = cost
         if final_transcript:
@@ -457,6 +492,7 @@ class CallService:
             payload=full_payload,
             user_id=user_id,
         )
+        session.add(call) # Ensure call updates are tracked
         session.add(status_event)
         session.commit()
         session.refresh(call)
@@ -481,6 +517,8 @@ class CallService:
                 "hasRecording": bool(call.recording_url),
                 "username": call.username,
                 "duration": call.duration,
+                "sentiment": call.sentiment,
+                "disposition": call.disposition,
             }
         }, user_id=user_id)
 
