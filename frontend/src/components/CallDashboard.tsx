@@ -943,12 +943,14 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 </Badge>
               </Button>
 
-              <div className="ml-auto flex gap-1">
-                <Button variant="outline" size="icon" className="h-7 w-7 text-slate-500 hover:text-slate-700" title="Refresh List" onClick={() => window.location.reload()}>
-                  <RefreshCw size={13} />
+              <div className="ml-auto flex gap-2">
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3" title="Refresh List" onClick={() => window.location.reload()}>
+                  <RefreshCw size={13} className="-ml-0.5" />
+                  Refresh
                 </Button>
-                <Button variant="outline" size="icon" className="h-7 w-7 text-slate-500 hover:text-slate-700" title="Download CSV" onClick={handleDownloadCSV}>
-                  <Download size={13} />
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3" title="Download CSV" onClick={handleDownloadCSV}>
+                  <Download size={13} className="-ml-0.5" />
+                  Export
                 </Button>
               </div>
             </div>
