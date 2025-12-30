@@ -260,6 +260,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       ),
       cell: (info) => <span className="font-medium text-slate-900">{info.getValue()}</span>,
       filterFn: "arrIncludesSome", // Allow multi-select
+      enableColumnFilter: true,
     }),
     columnHelper.accessor("created_at", {
       header: ({ column }) => (
@@ -295,7 +296,20 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       ),
       filterFn: numberRangeFilter,
     }),
-    columnHelper.accessor("sentiment", {
+    columnHelper.accessor((row) => {
+      let val = row.sentiment;
+      if (!val) return "N/A";
+
+      // Shorten long phrases
+      // Check case-insensitively
+      if (val.toLowerCase().includes("insufficient")) val = "Insufficient";
+      if (val.toLowerCase().includes("very satisfied")) val = "Very Satisfied"; // Keep as is or shorten if needed? User said "under 15 chars". "Very Satisfied" is 14 chars. OK.
+      if (val.toLowerCase().includes("very unsatisfied")) val = "V. Unsatisfied";
+
+      return (val as string)
+        .replace(/\b\w/g, c => c.toUpperCase());
+    }, {
+      id: "sentiment",
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
@@ -305,12 +319,12 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
               column={column}
               title="Sentiment"
               options={[
-                { label: "Very Satisfied", value: "very satisfied", icon: Smile },
-                { label: "Satisfied", value: "satisfied", icon: Smile },
-                { label: "Neutral", value: "neutral", icon: Activity },
-                { label: "Unsatisfied", value: "unsatisfied", icon: AlertCircle },
-                { label: "Very Unsatisfied", value: "very unsatisfied", icon: AlertCircle },
-                { label: "Insufficient Information", value: "insufficient information", icon: AlertCircle }
+                { label: "Very Satisfied", value: "Very Satisfied", icon: Smile },
+                { label: "Satisfied", value: "Satisfied", icon: Smile },
+                { label: "Neutral", value: "Neutral", icon: Activity },
+                { label: "Unsatisfied", value: "Unsatisfied", icon: AlertCircle },
+                { label: "V. Unsatisfied", value: "V. Unsatisfied", icon: AlertCircle },
+                { label: "Insufficient", value: "Insufficient", icon: AlertCircle }
               ]}
             />
           }
@@ -319,12 +333,10 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       cell: (info) => {
         const val = info.getValue();
 
-        if (!val) {
+        if (val === "N/A") {
           return <span className="text-slate-400 italic">N/A</span>;
         }
 
-        // Normalize string for display
-        const displayVal = (val as string).replace(/\b\w/g, c => c.toUpperCase());
         const normalizedKey = (val as string).toLowerCase().trim();
 
         const styles: Record<string, string> = {
@@ -332,29 +344,32 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           "satisfied": "bg-emerald-50 text-emerald-700 border-emerald-100",
           "neutral": "bg-amber-50 text-amber-700 border-amber-100",
           "unsatisfied": "bg-red-50 text-red-700 border-red-100",
-          "very unsatisfied": "bg-red-100 text-red-800 border-red-200",
-          "insufficient information": "bg-slate-50 text-slate-600 border-slate-200"
+          "v. unsatisfied": "bg-red-100 text-red-800 border-red-200",
+          "insufficient": "bg-slate-50 text-slate-600 border-slate-200"
         };
 
-        const style = styles[normalizedKey] || styles["insufficient information"];
+        const style = styles[normalizedKey] || styles["insufficient"];
 
         return (
           <Badge variant="outline" className={cn("border shadow-sm whitespace-nowrap", style)}>
-            {displayVal}
+            {val}
           </Badge>
         );
       },
       filterFn: "arrIncludesSome",
+      enableColumnFilter: true, // Explicitly enable
     }),
 
     // MODIFIED: Disposition Column
-    // We use a custom accessor to handle the "Live" logic for sorting/filtering purposes if needed,
-    // or just strictly use the 'disposition' field and override generic cell dispatch.
-    // User requirement: "For calls that are 'in-progress', show the disposition as 'Live' ... extract from json ... store in data model"
     columnHelper.accessor((row) => {
       const s = (row.status || "").toLowerCase();
       if (["in-progress", "ringing", "queued"].includes(s)) return "Live";
-      return row.disposition || row.status || "Unknown";
+
+      const val = row.disposition || row.status || "Unknown";
+      if (!val || val === "Unknown") return "N/A";
+
+      // Return raw value for filtering
+      return (val as string).toLowerCase();
     }, {
       id: "disposition",
       header: ({ column }) => (
@@ -367,23 +382,22 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
               title="Disposition"
               options={[
                 { label: "Live", value: "Live" },
-                { label: "Qualified", value: "Qualified" },
-                { label: "Not Qualified", value: "Not Qualified" },
-                { label: "Follow-up", value: "Follow-up" },
-                { label: "Completed", value: "Completed" },
+                { label: "Qualified", value: "qualified" },
+                { label: "Disqualified", value: "disqualified" },
+                { label: "Incomplete", value: "incomplete call" },
+                { label: "Follow Up", value: "follow_up_needed" },
+                { label: "Callback", value: "callback_requested" },
+                { label: "Transferred", value: "transferred" },
+                { label: "Do Not Call", value: "do_not_call" },
               ]}
             />
           }
         />
       ),
       cell: (info) => {
-        const val = info.getValue();
-        const row = info.row.original;
-        const s = (row.status || "").toLowerCase();
-        // Check if live
-        const isLive = ["in-progress", "ringing", "queued"].includes(s);
+        const val = info.getValue() as string;
 
-        if (isLive) {
+        if (val === "Live") {
           return (
             <span className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium border shadow-sm bg-emerald-50 text-emerald-700 border-emerald-100">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
@@ -392,42 +406,48 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           );
         }
 
-        if (!val || val === "Unknown") {
+        if (val === "N/A") {
           return <span className="text-slate-400 italic">N/A</span>;
         }
 
-        // Normalize string for display
-        // 1. Replace underscores with spaces
-        // 2. Capitalize first letter of each word
-        const displayVal = (val as string)
-          .replace(/_/g, " ")
-          .replace(/\b\w/g, c => c.toUpperCase());
+        // Helper to format display text
+        const formatDisposition = (str: string) => {
+          const lower = str.toLowerCase();
+          if (lower === "follow_up_needed") return "Follow Up";
+          if (lower === "callback_requested") return "Callback";
+          if (lower === "incomplete call") return "Incomplete";
 
-        const normalizedKey = (val as string).toLowerCase().trim().replace(/ /g, "_");
+          return str
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, c => c.toUpperCase());
+        };
 
-        // Color mapping
+        const displayText = formatDisposition(val);
+
+        // Style mapping uses the raw value (lowercase)
+        // We ensure keys match the "value" in options array
+        const styleKey = val.toLowerCase().trim();
+
         const colorStyles: Record<string, string> = {
           "qualified": "bg-emerald-100 text-emerald-800 border-emerald-200",
           "disqualified": "bg-slate-100 text-slate-700 border-slate-200",
-          "incomplete_call": "bg-orange-50 text-orange-700 border-orange-100",
+          "incomplete call": "bg-orange-50 text-orange-700 border-orange-100",
           "follow_up_needed": "bg-amber-100 text-amber-800 border-amber-200",
           "callback_requested": "bg-blue-50 text-blue-700 border-blue-100",
           "transferred": "bg-violet-50 text-violet-700 border-violet-100",
           "do_not_call": "bg-red-50 text-red-700 border-red-100",
         };
 
-        // Fallback for unknown keys
-        const styleClass = colorStyles[normalizedKey]
-          || colorStyles[normalizedKey.replace(/_/g, " ")] // fallback try without underscores if key had spaces
-          || "bg-slate-50 text-slate-600 border-slate-200";
+        const styleClass = colorStyles[styleKey] || "bg-slate-50 text-slate-600 border-slate-200";
 
         return (
           <span className={cn("inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold border shadow-sm whitespace-nowrap", styleClass)}>
-            {displayVal}
+            {displayText}
           </span>
         );
       },
       filterFn: "arrIncludesSome",
+      enableColumnFilter: true,
     }),
     // ACTIONS COLUMN REMOVED AS REQUESTED
   ], [calls]); // Re-create if calls mostly for the renderActions closure if needed, though row.original passes fresh data

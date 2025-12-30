@@ -898,7 +898,10 @@ const formatDuration = (seconds?: number | null) => {
 const SentimentBadge: React.FC<{ sentiment?: string | null }> = ({ sentiment }) => {
     if (!sentiment) return <span className="text-slate-400 italic text-xs">N/A</span>;
 
-    const displayVal = sentiment.replace(/\b\w/g, c => c.toUpperCase());
+    const displayVal = sentiment
+        .replace("Insufficient Information", "Insufficient")
+        .replace("Very Unsatisfied", "V. Unsatisfied")
+        .replace(/\b\w/g, c => c.toUpperCase());
     const normalizedKey = sentiment.toLowerCase().trim();
 
     const styles: Record<string, string> = {
@@ -906,11 +909,11 @@ const SentimentBadge: React.FC<{ sentiment?: string | null }> = ({ sentiment }) 
         "satisfied": "bg-emerald-50 text-emerald-700 border-emerald-100",
         "neutral": "bg-amber-50 text-amber-700 border-amber-100",
         "unsatisfied": "bg-red-50 text-red-700 border-red-100",
-        "very unsatisfied": "bg-red-100 text-red-800 border-red-200",
-        "insufficient information": "bg-slate-50 text-slate-600 border-slate-200"
+        "v. unsatisfied": "bg-red-100 text-red-800 border-red-200",
+        "insufficient": "bg-slate-50 text-slate-600 border-slate-200"
     };
 
-    const style = styles[normalizedKey] || styles["insufficient information"];
+    const style = styles[normalizedKey] || styles["insufficient"];
 
     return (
         <Badge variant="outline" className={cn("border shadow-sm whitespace-nowrap px-2 py-0.5 text-[10px] font-semibold", style)}>
@@ -939,6 +942,9 @@ const DispositionBadge: React.FC<{ disposition?: string | null, status?: string 
 
     const displayVal = disposition
         .replace(/_/g, " ")
+        .replace("Follow Up Needed", "Follow Up")
+        .replace("Callback Requested", "Callback")
+        .replace("Incomplete Call", "Incomplete")
         .replace(/\b\w/g, c => c.toUpperCase());
 
     const normalizedKey = disposition.toLowerCase().trim().replace(/ /g, "_");
@@ -946,9 +952,9 @@ const DispositionBadge: React.FC<{ disposition?: string | null, status?: string 
     const colorStyles: Record<string, string> = {
         "qualified": "bg-emerald-100 text-emerald-800 border-emerald-200",
         "disqualified": "bg-slate-100 text-slate-700 border-slate-200",
-        "incomplete_call": "bg-orange-50 text-orange-700 border-orange-100",
-        "follow_up_needed": "bg-amber-100 text-amber-800 border-amber-200",
-        "callback_requested": "bg-blue-50 text-blue-700 border-blue-100",
+        "incomplete": "bg-orange-50 text-orange-700 border-orange-100",
+        "follow_up": "bg-amber-100 text-amber-800 border-amber-200",
+        "callback": "bg-blue-50 text-blue-700 border-blue-100",
         "transferred": "bg-violet-50 text-violet-700 border-violet-100",
         "do_not_call": "bg-red-50 text-red-700 border-red-100",
     };
