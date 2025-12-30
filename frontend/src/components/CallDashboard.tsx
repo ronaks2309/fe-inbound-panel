@@ -298,9 +298,12 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
               column={column}
               title="Sentiment"
               options={[
-                { label: "Positive", value: "positive", icon: Smile },
+                { label: "Very Satisfied", value: "very satisfied", icon: Smile },
+                { label: "Satisfied", value: "satisfied", icon: Smile },
                 { label: "Neutral", value: "neutral", icon: Activity },
-                { label: "Negative", value: "negative", icon: AlertCircle }
+                { label: "Unsatisfied", value: "unsatisfied", icon: AlertCircle },
+                { label: "Very Unsatisfied", value: "very unsatisfied", icon: AlertCircle },
+                { label: "Insufficient Information", value: "insufficient information", icon: AlertCircle }
               ]}
             />
           }
@@ -313,18 +316,24 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           return <span className="text-slate-400 italic">N/A</span>;
         }
 
-        const styles = {
-          positive: "bg-emerald-100 text-emerald-700",
-          neutral: "bg-slate-100 text-slate-700",
-          negative: "bg-red-100 text-red-700"
+        // Normalize string for display
+        const displayVal = (val as string).replace(/\b\w/g, c => c.toUpperCase());
+        const normalizedKey = (val as string).toLowerCase().trim();
+
+        const styles: Record<string, string> = {
+          "very satisfied": "bg-emerald-100 text-emerald-800 border-emerald-200",
+          "satisfied": "bg-emerald-50 text-emerald-700 border-emerald-100",
+          "neutral": "bg-amber-50 text-amber-700 border-amber-100",
+          "unsatisfied": "bg-red-50 text-red-700 border-red-100",
+          "very unsatisfied": "bg-red-100 text-red-800 border-red-200",
+          "insufficient information": "bg-slate-50 text-slate-600 border-slate-200"
         };
-        // Normalize
-        const normalizedVal = (val as string).toLowerCase();
-        const style = styles[normalizedVal as keyof typeof styles] || styles.neutral;
+
+        const style = styles[normalizedKey] || styles["insufficient information"];
 
         return (
-          <Badge variant="outline" className={cn("border-0 font-bold capitalize", style)}>
-            {val}
+          <Badge variant="outline" className={cn("border shadow-sm whitespace-nowrap", style)}>
+            {displayVal}
           </Badge>
         );
       },

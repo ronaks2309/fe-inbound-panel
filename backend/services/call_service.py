@@ -115,6 +115,14 @@ class CallService:
             except Exception as e:
                 print(f"Error parsing startedAt: {e}")
 
+        # Capture createdAt if present
+        created_at_str = call_data.get("createdAt")
+        if created_at_str:
+            try:
+                call.created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            except Exception as e:
+                print(f"Error parsing createdAt: {e}")
+
         # Update user_id if provided
         if user_id:
             call.user_id = user_id
@@ -140,7 +148,7 @@ class CallService:
         # Mark as ended if status indicates completion
         #if status and status.lower() in {"ended"}:
         #    call.ended_at = call.ended_at or now
-
+        
         call.updated_at = now
 
         # Create status event record
@@ -165,6 +173,7 @@ class CallService:
                 "status": call.status,
                 "phoneNumber": call.phone_number,
                 "startedAt": to_iso_utc(call.started_at) or to_iso_utc(call.created_at),
+                "created_at": to_iso_utc(call.created_at),
                 "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "hasTranscript": bool(call.final_transcript),
@@ -510,6 +519,7 @@ class CallService:
                 "status": call.status,
                 "phoneNumber": call.phone_number,
                 "startedAt": to_iso_utc(call.started_at),
+                "created_at": to_iso_utc(call.created_at),
                 "endedAt": to_iso_utc(call.ended_at),
                 "hasListenUrl": bool(call.listen_url),
                 "finalTranscript": call.final_transcript,
