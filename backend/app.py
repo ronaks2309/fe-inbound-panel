@@ -57,12 +57,13 @@ def health():
     return {"status": "ok"}
 
 @app.get("/api/recordings/{filename}")
-async def get_recording(filename: str):
+async def get_recording(filename: str, redirect: bool = True):
     """
     Redirects to a temporary signed URL for the recording file in Supabase storage.
+    If redirect=False, returns the URL in a JSON object: { "url": "..." }
     """
     from services.supabase_service import supabase
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import RedirectResponse, JSONResponse
 
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase client not configured")
@@ -70,7 +71,7 @@ async def get_recording(filename: str):
     try:
         bucket = os.getenv("SUPABASE_BUCKET", "recordings")
         # create_signed_url returns { "signedURL": "..." } or similar depending on version
-        res = supabase.storage.from_(bucket).create_signed_url(filename, 3600) # 1 hour expiry
+        res = supabase.storage.from_(bucket).create_signed_url(filename, 172800) # 48 hours expiry
         
         signed_url = None
         if isinstance(res, dict):
@@ -87,7 +88,10 @@ async def get_recording(filename: str):
             print(f"[get_recording] Failed to get signed URL. Response: {res}")
             raise HTTPException(status_code=404, detail="Could not generate access link")
 
-        return RedirectResponse(url=signed_url)
+        if redirect:
+            return RedirectResponse(url=signed_url)
+        else:
+            return JSONResponse(content={"url": signed_url})
     except Exception as e:
         print(f"[get_recording] Error generating signed URL: {e}")
         raise HTTPException(status_code=404, detail="Recording not found or access denied")

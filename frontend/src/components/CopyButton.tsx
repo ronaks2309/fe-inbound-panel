@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface CopyButtonProps {
-    textToCopy: string;
+    textToCopy: string | (() => Promise<string>) | (() => string);
     className?: string;
     iconSize?: number;
     title?: string;
@@ -17,12 +17,22 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
 }) => {
     const [isCopied, setIsCopied] = useState(false);
 
-    const handleCopy = (e: React.MouseEvent) => {
+    const handleCopy = async (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        navigator.clipboard.writeText(textToCopy);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 1500);
+
+        try {
+            let text = textToCopy;
+            if (typeof textToCopy === 'function') {
+                text = await textToCopy();
+            }
+
+            await navigator.clipboard.writeText(text as string);
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 1500);
+        } catch (err) {
+            console.error("Failed to copy:", err);
+        }
     };
 
     return (

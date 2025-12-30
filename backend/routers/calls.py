@@ -43,6 +43,9 @@ class CallListResponse(BaseModel):
     # New fields
     sentiment: Optional[str] = None
     disposition: Optional[str] = None
+    notes: Optional[str] = None
+    feedback_rating: Optional[int] = None
+    feedback_text: Optional[str] = None
     
     # Computed boolean flags (not in DB model)
     hasListenUrl: bool
@@ -94,6 +97,9 @@ def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = 
             # New fields
             sentiment=c.sentiment,
             disposition=c.disposition,
+            notes=c.notes,
+            feedback_rating=c.feedback_rating,
+            feedback_text=c.feedback_text,
             # Computed flags
             hasListenUrl=bool(c.listen_url),
             hasLiveTranscript=bool(c.live_transcript),
@@ -134,6 +140,9 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
         # New fields
         sentiment=call.sentiment,
         disposition=call.disposition,
+        notes=call.notes,
+        feedback_rating=call.feedback_rating,
+        feedback_text=call.feedback_text,
         # Heavy fields (included for detail view)
         live_transcript=call.live_transcript,
         final_transcript=call.final_transcript,
@@ -276,3 +285,27 @@ def get_call_recording(call_id: str, session: Session = Depends(get_session)):
     except Exception as e:
         print(f"Error signing URL: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+
+
+@router.patch("/api/calls/{call_id}")
+def update_call(call_id: str, payload: dict = Body(...), session: Session = Depends(get_session)):
+    """
+    Update call details like notes and feedback.
+    """
+    call = session.get(Call, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+        
+    # Update fields if present in payload
+    if "notes" in payload:
+        call.notes = payload["notes"]
+    if "feedback_rating" in payload:
+        call.feedback_rating = payload["feedback_rating"]
+    if "feedback_text" in payload:
+        call.feedback_text = payload["feedback_text"]
+        
+    session.add(call)
+    session.commit()
+    session.refresh(call)
+    
+    return {"ok": True, "call": call}

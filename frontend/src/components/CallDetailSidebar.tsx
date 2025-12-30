@@ -6,7 +6,9 @@ import {
     Mic,
     PhoneIncoming,
     AlertTriangle,
+    Save,
 } from "lucide-react";
+import { SimpleToast } from "./ui/SimpleToast";
 import { Button } from "./ui/button";
 import { CopyButton } from "./CopyButton";
 import {
@@ -26,10 +28,21 @@ interface CallDetailSidebarProps {
 
 export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose, onCallUpdated }) => {
     const [activeTab, setActiveTab] = useState<"transcript" | "progress" | "summary" | "notes">("transcript");
+    const [notes, setNotes] = useState("");
     const [feedbackRating, setFeedbackRating] = useState<number>(0);
     const [feedbackText, setFeedbackText] = useState("");
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const [takingOver, setTakingOver] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+    // Reset/Sync state when call changes or loads
+    useEffect(() => {
+        if (call) {
+            setNotes(call.notes || "");
+            setFeedbackRating(call.feedback_rating || 0);
+            setFeedbackText(call.feedback_text || "");
+        }
+    }, [call?.id, call?.notes, call?.feedback_rating, call?.feedback_text]);
 
     // Fetch full details effect (from TranscriptModal)
     useEffect(() => {
@@ -56,9 +69,14 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                     recording_url: data.recording_url ?? data.recordingUrl ?? call.recording_url,
                     has_listen_url: data.has_listen_url ?? data.hasListenUrl ?? call.has_listen_url,
                     sentiment: data.sentiment ?? call.sentiment,
-                    disposition: data.disposition ?? call.disposition
+                    disposition: data.disposition ?? call.disposition,
+                    notes: data.notes ?? call.notes,
+                    feedback_rating: data.feedback_rating ?? call.feedback_rating,
+                    feedback_text: data.feedback_text ?? call.feedback_text
                 };
                 onCallUpdated(fullCall);
+                // State sync handled by the Effect above dependent on props
+                // But since onCallUpdated updates the parent, and parent passes new prop, the effect above will trigger.
             })
             .catch(err => console.error("Failed to fetch call details", err));
     }, [call?.id]); // Only re-run if call ID changes, not on every prop update if loaded
@@ -76,11 +94,42 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     const stages = ["Identity", "Discovery", "Solution", "Close"];
     const currentStageIndex = 1; // Mocked: "Discovery"
 
-    const handleSaveFeedback = () => {
-        console.log("Saving feedback:", { rating: feedbackRating, text: feedbackText, callId: call.id });
-        setIsFeedbackOpen(false);
-        setFeedbackRating(0);
-        setFeedbackText("");
+    const handleSaveNotes = async () => {
+        try {
+            const res = await fetch(`${backendUrl}/api/calls/${call.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ notes })
+            });
+            if (!res.ok) throw new Error("Failed to save notes");
+
+            setToast({ message: "Notes saved successfully", type: "success" });
+            onCallUpdated({ ...call, notes });
+        } catch (e) {
+            console.error(e);
+            setToast({ message: "Failed to save notes", type: "error" });
+        }
+    };
+
+    const handleSaveFeedback = async () => {
+        try {
+            const res = await fetch(`${backendUrl}/api/calls/${call.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    feedback_rating: feedbackRating,
+                    feedback_text: feedbackText
+                })
+            });
+            if (!res.ok) throw new Error("Failed to save feedback");
+
+            setToast({ message: "Feedback saved successfully", type: "success" });
+            setIsFeedbackOpen(false);
+            onCallUpdated({ ...call, feedback_rating: feedbackRating, feedback_text: feedbackText });
+        } catch (e) {
+            console.error(e);
+            setToast({ message: "Failed to save feedback", type: "error" });
+        }
     };
 
     const handleTakeOver = async () => {
@@ -265,14 +314,30 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                     )}
 
                     {activeTab === "notes" && (
-                        <div className="p-6">
+                        <div className="p-6 flex flex-col gap-4 h-full">
                             <textarea
-                                className="w-full h-48 p-4 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 resize-none shadow-sm transition-all text-slate-700 placeholder:text-slate-400"
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                className="w-full p-4 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 resize-none shadow-sm transition-all text-slate-700 placeholder:text-slate-400 h-24"
                                 placeholder="Add private notes here..."
                             />
+                            <div className="flex justify-end">
+                                <Button onClick={handleSaveNotes} className="bg-blue-600 hover:bg-blue-700 text-white">
+                                    <Save size={16} className="mr-2" />
+                                    Save Notes
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </div>
+
+                {toast && (
+                    <SimpleToast
+                        message={toast.message}
+                        type={toast.type}
+                        onClose={() => setToast(null)}
+                    />
+                )}
 
                 {/* BOTTOM ACTIONS */}
                 <div className="p-5 bg-white border-t border-slate-200 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)] z-20">
@@ -350,9 +415,32 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
                 ? call.recording_url
                 : `${backendUrl}/api/recordings/${call.recording_url}`;
 
+            const getSignedUrl = async () => {
+                if (!src.includes("/api/recordings/")) return src;
+                try {
+                    const res = await fetch(`${src}?redirect=false`);
+                    if (!res.ok) throw new Error("Failed to get signed URL");
+                    const data = await res.json();
+                    return data.url;
+                } catch (e) {
+                    console.error("Error fetching signed URL", e);
+                    return src; // Fallback
+                }
+            };
+
             return (
                 <div className="mt-2">
-                    <p className="text-xs font-medium text-slate-500 mb-2 px-1">Call Recording</p>
+                    <div className="flex justify-between items-center mb-2 px-1">
+                        <p className="text-xs font-medium text-slate-500">Call Recording</p>
+                        <div className="flex items-center gap-2">
+                            <CopyButton
+                                textToCopy={getSignedUrl}
+                                title="Copy Signed URL"
+                                className="opacity-100 text-slate-400 hover:text-slate-600"
+                                iconSize={14}
+                            />
+                        </div>
+                    </div>
                     <div className="bg-slate-50 border border-slate-100 rounded-lg p-2">
                         <audio controls src={src} className="w-full h-8" />
                     </div>

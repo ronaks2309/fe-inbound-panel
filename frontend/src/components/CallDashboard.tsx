@@ -99,6 +99,9 @@ export type Call = {
   detailsLoaded?: boolean; // flag to indicate if heavy fields are loaded
   sentiment?: "positive" | "neutral" | "negative" | null; // Added for UI
   disposition?: string | null; // NEW: Disposition field
+  notes?: string | null;
+  feedback_rating?: number | null;
+  feedback_text?: string | null;
 };
 
 // CUSTOM FILTER FUNCTIONS
