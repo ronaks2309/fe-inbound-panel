@@ -10,10 +10,27 @@ import {
     Pause,
     Volume2,
     VolumeX,
+    MoreVertical,
+    Download,
+    Gauge,
+    Copy,
 } from "lucide-react";
 import { SimpleToast } from "./ui/SimpleToast";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { cn } from "../lib/utils";
 import { CopyButton } from "./CopyButton";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSub,
+    DropdownMenuSubTrigger,
+    DropdownMenuSubContent,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+} from "./ui/dropdown-menu";
 import {
     Popover,
     PopoverContent,
@@ -169,47 +186,65 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
             {/* Sidebar Panel */}
             <div className="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out border-l border-slate-200 flex flex-col font-sans">
 
-                {/* HEADER */}
-                <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-start">
-                    <div className="flex-1 min-w-0 pr-4">
-                        {/* Title: Phone Number */}
-                        <div className="group flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">
-                                {call.phone_number || "Unknown Number"}
-                            </h2>
-                            {call.phone_number && (
-                                <CopyButton
-                                    textToCopy={call.phone_number}
-                                    title="Copy Number"
-                                    className="opacity-0 group-hover:opacity-100 mt-0.5"
-                                    iconSize={14}
-                                />
-                            )}
-                        </div>
-                        {/* Sub-header: User Name & ID */}
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1.5 flex-wrap">
-                            <span className="font-medium text-slate-700 whitespace-nowrap">
-                                Username: <span className="font-normal text-slate-500">{call.username || call.user_id || "Unknown"}</span>
-                            </span>
-                            <span className="text-slate-300">|</span>
-                            {/* Call ID Group */}
-                            <div className="group flex items-center gap-1.5 whitespace-nowrap relative select-none">
-                                <span>ID: <span className="font-mono">{call.id.slice(0, 8)}...</span></span>
+                {/* HEADER - Title Section */}
+                <div className="px-5 py-3 bg-white border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+                    <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">
+                        {call.phone_number || "Unknown Number"}
+                    </h2>
+                    {/* Close Button (Moved here for better layout) */}
+                    <button
+                        onClick={onClose}
+                        className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                {/* HEADER - Details Section */}
+                <div className="px-5 py-3 bg-slate-50/50 border-b border-slate-100">
+                    <div className="grid grid-cols-3 gap-x-2 gap-y-3">
+                        {/* Row 1 */}
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Call ID</span>
+                            <div className="flex items-center gap-1 group">
+                                <span className="font-mono text-[11px] text-slate-700">{call.id.slice(0, 8)}...</span>
                                 <CopyButton
                                     textToCopy={call.id}
-                                    title="Copy Call ID"
+                                    title="Copy ID"
                                     className="opacity-0 group-hover:opacity-100"
+                                    iconSize={10}
                                 />
                             </div>
                         </div>
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Username</span>
+                            <div className="text-[11px] font-medium text-slate-700 truncate" title={call.username || call.user_id || "Unknown"}>
+                                {call.username || call.user_id || "Unknown"}
+                            </div>
+                        </div>
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Time</span>
+                            <div className="text-[11px] text-slate-700 whitespace-nowrap">
+                                {new Date(call.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}, {new Date(call.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                        </div>
+
+                        {/* Row 2 */}
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Duration</span>
+                            <div className="text-[11px] font-mono text-slate-700">
+                                {isActive ? <DurationTimer call={call} /> : formatDuration(call.duration)}
+                            </div>
+                        </div>
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Sentiment</span>
+                            <div className="transform scale-90 origin-top-left"><SentimentBadge sentiment={call.sentiment} /></div>
+                        </div>
+                        <div className="space-y-0.5">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Disposition</span>
+                            <div className="transform scale-90 origin-top-left"><DispositionBadge disposition={call.disposition} status={call.status} /></div>
+                        </div>
                     </div>
-                    {/* Close Button */}
-                    <button
-                        onClick={onClose}
-                        className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 transition-colors flex-shrink-0"
-                    >
-                        <X size={20} />
-                    </button>
                 </div>
 
                 {/* AUDIO WIDGET */}
@@ -403,7 +438,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                     )}
                 </div>
 
-            </div>
+            </div >
         </>
     );
 };
@@ -413,42 +448,7 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
     // If ended, show standard recorded player
     if (!isActive) {
         if (call.recording_url) {
-            // Prepend backend URL if relative
-            const src = call.recording_url.startsWith("http")
-                ? call.recording_url
-                : `${backendUrl}/api/recordings/${call.recording_url}`;
-
-            const getSignedUrl = async () => {
-                if (!src.includes("/api/recordings/")) return src;
-                try {
-                    const res = await fetch(`${src}?redirect=false`);
-                    if (!res.ok) throw new Error("Failed to get signed URL");
-                    const data = await res.json();
-                    return data.url;
-                } catch (e) {
-                    console.error("Error fetching signed URL", e);
-                    return src; // Fallback
-                }
-            };
-
-            return (
-                <div className="mt-2">
-                    <div className="flex justify-between items-center mb-2 px-1">
-                        <p className="text-xs font-medium text-slate-500">Call Recording</p>
-                        <div className="flex items-center gap-2">
-                            <CopyButton
-                                textToCopy={getSignedUrl}
-                                title="Copy Signed URL"
-                                className="opacity-100 text-slate-400 hover:text-slate-600"
-                                iconSize={14}
-                            />
-                        </div>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 rounded-lg p-2">
-                        <audio controls src={src} className="w-full h-8" />
-                    </div>
-                </div>
-            )
+            return <RecordedAudioPlayer call={call} />;
         }
         return (
             <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm opacity-60">
@@ -459,6 +459,190 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
 
     // LIVE AUDIO PLAYER
     return <LiveAudioStreamer call={call} />;
+};
+
+const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [playbackRate, setPlaybackRate] = useState(1);
+    const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
+    // Prepare Source URL
+    const getSrc = () => {
+        if (!call.recording_url) return "";
+        return call.recording_url.startsWith("http")
+            ? call.recording_url
+            : `${backendUrl}/api/recordings/${call.recording_url}`;
+    };
+    const [src, setSrc] = useState<string>("");
+
+    useEffect(() => {
+        const rawSrc = getSrc();
+        if (rawSrc.includes("/api/recordings/")) {
+            fetch(`${rawSrc}?redirect=false`)
+                .then(res => res.ok ? res.json() : { url: rawSrc })
+                .then(data => setSrc(data.url || rawSrc))
+                .catch(() => setSrc(rawSrc));
+        } else {
+            setSrc(rawSrc);
+        }
+    }, [call.recording_url]);
+
+
+    const togglePlay = () => {
+        if (!audioRef.current) return;
+        if (isPlaying) {
+            audioRef.current.pause();
+        } else {
+            audioRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+    };
+
+    const handleTimeUpdate = () => {
+        if (audioRef.current) {
+            setCurrentTime(audioRef.current.currentTime);
+        }
+    };
+
+    const handleLoadedMetadata = () => {
+        if (audioRef.current) {
+            setDuration(audioRef.current.duration);
+        }
+    };
+
+    const handleSeek = (time: number) => {
+        if (audioRef.current) {
+            audioRef.current.currentTime = time;
+            setCurrentTime(time);
+        }
+    };
+
+    const changeSpeed = (speed: number) => {
+        if (audioRef.current) {
+            audioRef.current.playbackRate = speed;
+            setPlaybackRate(speed);
+        }
+    }
+
+    const handleDownload = () => {
+        if (!src) return;
+        const link = document.createElement('a');
+        link.href = src;
+        link.download = `recording-${call.id}.mp3`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    const handleCopyUrl = () => {
+        if (!src) return;
+        navigator.clipboard.writeText(src);
+        // Toast handled by CopyButton usually, but here we do simple alert or nothing
+    }
+
+    const formatTime = (time: number) => {
+        const mins = Math.floor(time / 60);
+        const secs = Math.floor(time % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    return (
+        <div className="bg-white border border-slate-100 rounded-lg p-2 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] flex items-center gap-2 transition-all hover:shadow-md">
+            <audio
+                ref={audioRef}
+                src={src}
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={handleLoadedMetadata}
+                onEnded={() => setIsPlaying(false)}
+            />
+
+            {/* Play/Pause */}
+            <button
+                onClick={togglePlay}
+                className="h-8 w-8 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors flex-shrink-0"
+            >
+                {isPlaying ? <Pause size={14} className="fill-current" /> : <Play size={14} className="fill-current ml-0.5" />}
+            </button>
+
+
+            {/* Waveform Visualizer */}
+            <div className="flex-1 min-w-0 flex flex-col justify-center h-8 group cursor-pointer relative"
+                onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const pct = Math.max(0, Math.min(1, x / rect.width));
+                    handleSeek(pct * (duration || 0));
+                }}
+            >
+                <div className="flex items-end gap-[2px] h-full opacity-80 group-hover:opacity-100 transition-opacity">
+                    {/* Simulated Waveform Bars */}
+                    {[...Array(40)].map((_, i) => {
+                        // Pseudo-random height based on index to create a "wave" shape
+                        // We use sin/cos to make it look like a wave, plus some noise
+                        const noise = (Math.sin(i * 0.5) + 1) * 0.5; // 0 to 1
+                        const heightPct = Math.max(20, noise * 100);
+
+                        const isActiveBar = (i / 40) < (currentTime / (duration || 1));
+
+                        return (
+                            <div
+                                key={i}
+                                className={`flex-1 rounded-full transition-colors duration-150 ${isActiveBar ? 'bg-blue-500' : 'bg-slate-200'}`}
+                                style={{ height: `${heightPct}%` }}
+                            />
+                        )
+                    })}
+                </div>
+
+                {/* Hover Time Tooltip (Simple) */}
+                <div className="absolute -top-4 w-full flex justify-between px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[9px] font-medium text-slate-500 bg-white/90 px-1 rounded shadow-sm">
+                        {formatTime(currentTime)}
+                    </span>
+                </div>
+            </div>
+
+            {/* Time / Speed Indicator */}
+            <div className="text-[10px] font-mono font-medium text-slate-400 w-10 text-right">
+                {playbackRate !== 1 ? `${playbackRate}x` : formatTime(duration)}
+            </div>
+
+            {/* Options Menu */}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button className="h-6 w-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors">
+                        <MoreVertical size={14} />
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                            <Gauge size={14} className="mr-2" />
+                            Playback Speed
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            <DropdownMenuRadioGroup value={String(playbackRate)} onValueChange={(v) => changeSpeed(parseFloat(v))}>
+                                <DropdownMenuRadioItem value="0.5">0.5x (Slow)</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="1">1.0x (Normal)</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="1.5">1.5x (Fast)</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="2">2.0x (Double)</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuItem onClick={handleDownload}>
+                        <Download size={14} className="mr-2" />
+                        Download Audio
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleCopyUrl}>
+                        <Copy size={14} className="mr-2" />
+                        Copy URL
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    );
 };
 
 const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
@@ -686,3 +870,96 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
         </div>
     );
 }
+// HELPER COMPONENTS
+const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
+    const [elapsed, setElapsed] = useState(0);
+
+    useEffect(() => {
+        if (!call.started_at) return;
+        const interval = setInterval(() => {
+            const start = new Date(call.started_at!).getTime();
+            const now = Date.now();
+            setElapsed(Math.floor((now - start) / 1000));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [call.started_at]);
+
+    return <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>;
+};
+
+const formatDuration = (seconds?: number | null) => {
+    if (!seconds) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+// Styling adapted from CallDashboard.tsx
+const SentimentBadge: React.FC<{ sentiment?: string | null }> = ({ sentiment }) => {
+    if (!sentiment) return <span className="text-slate-400 italic text-xs">N/A</span>;
+
+    const displayVal = sentiment.replace(/\b\w/g, c => c.toUpperCase());
+    const normalizedKey = sentiment.toLowerCase().trim();
+
+    const styles: Record<string, string> = {
+        "very satisfied": "bg-emerald-100 text-emerald-800 border-emerald-200",
+        "satisfied": "bg-emerald-50 text-emerald-700 border-emerald-100",
+        "neutral": "bg-amber-50 text-amber-700 border-amber-100",
+        "unsatisfied": "bg-red-50 text-red-700 border-red-100",
+        "very unsatisfied": "bg-red-100 text-red-800 border-red-200",
+        "insufficient information": "bg-slate-50 text-slate-600 border-slate-200"
+    };
+
+    const style = styles[normalizedKey] || styles["insufficient information"];
+
+    return (
+        <Badge variant="outline" className={cn("border shadow-sm whitespace-nowrap px-2 py-0.5 text-[10px] font-semibold", style)}>
+            {displayVal}
+        </Badge>
+    );
+};
+
+const DispositionBadge: React.FC<{ disposition?: string | null, status?: string | null }> = ({ disposition, status }) => {
+    // Check if live
+    const s = (status || "").toLowerCase();
+    const isLive = ["in-progress", "ringing", "queued"].includes(s);
+
+    if (isLive) {
+        return (
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium border shadow-sm bg-emerald-50 text-emerald-700 border-emerald-100">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
+                Live
+            </span>
+        );
+    }
+
+    if (!disposition || disposition === "Unknown") {
+        return <span className="text-slate-400 italic text-xs">N/A</span>;
+    }
+
+    const displayVal = disposition
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase());
+
+    const normalizedKey = disposition.toLowerCase().trim().replace(/ /g, "_");
+
+    const colorStyles: Record<string, string> = {
+        "qualified": "bg-emerald-100 text-emerald-800 border-emerald-200",
+        "disqualified": "bg-slate-100 text-slate-700 border-slate-200",
+        "incomplete_call": "bg-orange-50 text-orange-700 border-orange-100",
+        "follow_up_needed": "bg-amber-100 text-amber-800 border-amber-200",
+        "callback_requested": "bg-blue-50 text-blue-700 border-blue-100",
+        "transferred": "bg-violet-50 text-violet-700 border-violet-100",
+        "do_not_call": "bg-red-50 text-red-700 border-red-100",
+    };
+
+    const styleClass = colorStyles[normalizedKey]
+        || colorStyles[normalizedKey.replace(/_/g, " ")]
+        || "bg-slate-50 text-slate-600 border-slate-200";
+
+    return (
+        <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold border shadow-sm whitespace-nowrap", styleClass)}>
+            {displayVal}
+        </span>
+    );
+};
