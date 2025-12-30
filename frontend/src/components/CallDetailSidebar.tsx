@@ -364,7 +364,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                         <div className="flex gap-3">
                             <Popover open={isFeedbackOpen} onOpenChange={setIsFeedbackOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button variant="outline" className="flex-1 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+                                    <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-transparent">
                                         <MessageSquare size={16} className="mr-2" />
                                         Feedback
                                     </Button>

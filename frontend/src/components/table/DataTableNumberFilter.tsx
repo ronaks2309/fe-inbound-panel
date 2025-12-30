@@ -3,6 +3,7 @@ import type { Column } from "@tanstack/react-table"
 
 import { cn } from "../../lib/utils"
 import { Button } from "../ui/button"
+import { Input } from "../ui/input"
 import {
     Popover,
     PopoverContent,
@@ -39,40 +40,44 @@ export function DataTableNumberFilter<TData, TValue>({
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Filter Number">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title={`Filter ${title}`}>
                     <Filter className={cn("h-4 w-4 opacity-50", (filterValue.min !== undefined || filterValue.max !== undefined) && "text-blue-600 opacity-100")} />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-4" align="start">
-                <div className="space-y-4">
-                    <h4 className="font-medium leading-none">Filter {title}</h4>
-                    <div className="grid gap-2">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="min-val" className="col-span-1">Min</Label>
-                            <input
+            <PopoverContent className="w-auto p-3" align="start">
+                <div className="space-y-3">
+                    <h4 className="font-medium text-sm leading-none text-slate-600 mb-1">Filter {title}</h4>
+                    <div className="flex flex-row gap-2">
+                        <div className="flex flex-col gap-1">
+                            <Label htmlFor="min-val" className="text-xs text-muted-foreground">Min</Label>
+                            <Input
                                 type="number"
                                 id="min-val"
-                                className="col-span-3 h-8 rounded border border-slate-300 px-2 text-xs"
-                                placeholder="Seconds"
+                                className="h-8 w-24 text-xs"
+                                placeholder="Min"
                                 value={filterValue.min ?? ''}
                                 onChange={(e) => setFilter('min', e.target.value)}
                             />
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="max-val" className="col-span-1">Max</Label>
-                            <input
+                        <div className="flex flex-col gap-1">
+                            <Label htmlFor="max-val" className="text-xs text-muted-foreground">Max</Label>
+                            <Input
                                 type="number"
                                 id="max-val"
-                                className="col-span-3 h-8 rounded border border-slate-300 px-2 text-xs"
-                                placeholder="Seconds"
+                                className="h-8 w-24 text-xs"
+                                placeholder="Max"
                                 value={filterValue.max ?? ''}
                                 onChange={(e) => setFilter('max', e.target.value)}
                             />
                         </div>
                     </div>
-                    <div className="flex justify-between">
-                        <Button variant="outline" size="sm" onClick={clearFilter}>Clear</Button>
-                    </div>
+                    {(filterValue.min !== undefined || filterValue.max !== undefined) && (
+                        <div className="pt-1">
+                            <Button variant="ghost" size="sm" onClick={clearFilter} className="h-7 w-full text-xs hover:bg-slate-100 text-slate-500">
+                                Clear Filter
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </PopoverContent>
         </Popover>
