@@ -43,9 +43,16 @@ import {
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
+  ChevronDown,
 } from "lucide-react";
 
 // NEW IMPORTS
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { DataTableColumnHeader } from "./table/DataTableColumnHeader";
 import { DataTableFacetedFilter } from "./table/DataTableFacetedFilter";
 import { DataTableDateFilter } from "./table/DataTableDateFilter";
@@ -436,7 +443,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     },
     initialState: {
       pagination: {
-        pageSize: 10,
+        pageSize: 25,
       },
     },
     enableRowSelection: true, // Enable selection
@@ -966,10 +973,39 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 {/* PAGINATION CONTROLS */}
                 <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 sm:px-6">
                   {/* Info Text */}
-                  <div className="hidden sm:block">
-                    <p className="text-sm text-slate-500">
-                      Showing <span className="font-medium text-slate-900">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span> to <span className="font-medium text-slate-900">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)}</span> of <span className="font-medium text-slate-900">{table.getFilteredRowModel().rows.length}</span> results
-                    </p>
+                  <div className="flex items-center gap-4">
+                    {/* Rows per page Selector - Moved to Left */}
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-slate-500 whitespace-nowrap">Rows</p>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="h-8 w-[60px] justify-between text-xs font-normal"
+                          >
+                            {table.getState().pagination.pageSize}
+                            <ChevronDown className="h-3 w-3 opacity-50" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-[60px]">
+                          {[10, 20, 25, 50, 100].map((pageSize) => (
+                            <DropdownMenuItem
+                              key={pageSize}
+                              className="text-xs justify-center cursor-pointer"
+                              onSelect={() => table.setPageSize(pageSize)}
+                            >
+                              {pageSize}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    <div className="hidden sm:block">
+                      <p className="text-sm text-slate-500">
+                        Showing <span className="font-medium text-slate-900">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span> to <span className="font-medium text-slate-900">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)}</span> of <span className="font-medium text-slate-900">{table.getFilteredRowModel().rows.length}</span> results
+                      </p>
+                    </div>
                   </div>
 
                   {/* Pagination Widget */}
