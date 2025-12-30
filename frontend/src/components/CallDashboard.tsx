@@ -104,7 +104,7 @@ export type Call = {
   final_transcript?: string | null;  // final transcript from end-of-call-report
   summary?: { summary: string } | null;
   detailsLoaded?: boolean; // flag to indicate if heavy fields are loaded
-  sentiment?: "positive" | "neutral" | "negative" | null; // Added for UI
+  sentiment?: string | null; // Changed to string to allow normalized values
   disposition?: string | null; // NEW: Disposition field
   notes?: string | null;
   feedback_rating?: number | null;
@@ -154,7 +154,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
 
   // Filter / Tab State
-  const [activeTab, setActiveTab] = useState<"all" | "live" | "transferred" | "followup">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "live" | "transferred" | "followup" | "callback">("all");
 
   // TanStack Table State
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -177,22 +177,34 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       all: calls.length,
       live: 0,
       transferred: 0,
-      followup: 0
+      followup: 0,
+      callback: 0
     };
 
     calls.forEach(c => {
       const s = (c.status || "").toLowerCase();
+      const d = (c.disposition || "").toLowerCase();
+
       if (["in-progress", "ringing", "queued"].includes(s)) counts.live++;
-      if (s === "transferred") counts.transferred++; // Assuming 'transferred' status
-      if (s === "follow-up" || (c.summary?.summary && c.summary.summary.toLowerCase().includes("follow up"))) counts.followup++; // Heuristic
+
+      // Use disposition for these counts
+      if (d === "transferred") counts.transferred++;
+      if (d === "follow_up_needed") counts.followup++;
+      if (d === "callback_requested") counts.callback++;
     });
 
     const filtered = calls.filter(c => {
       const s = (c.status || "").toLowerCase();
+      const d = (c.disposition || "").toLowerCase();
+
       if (activeTab === "all") return true;
       if (activeTab === "live") return ["in-progress", "ringing", "queued"].includes(s);
-      if (activeTab === "transferred") return s === "transferred";
-      if (activeTab === "followup") return s === "follow-up" || (c.summary?.summary && c.summary.summary.toLowerCase().includes("follow up"));
+
+      // Use disposition for these filters
+      if (activeTab === "transferred") return d === "transferred";
+      if (activeTab === "followup") return d === "follow_up_needed";
+      if (activeTab === "callback") return d === "callback_requested";
+
       return true;
     });
 
@@ -297,16 +309,17 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       filterFn: numberRangeFilter,
     }),
     columnHelper.accessor((row) => {
-      let val = row.sentiment;
+      let val: string | null = row.sentiment ?? null;
       if (!val) return "N/A";
 
       // Shorten long phrases
       // Check case-insensitively
-      if (val.toLowerCase().includes("insufficient")) val = "Insufficient";
-      if (val.toLowerCase().includes("very satisfied")) val = "Very Satisfied"; // Keep as is or shorten if needed? User said "under 15 chars". "Very Satisfied" is 14 chars. OK.
-      if (val.toLowerCase().includes("very unsatisfied")) val = "V. Unsatisfied";
+      const lower = val.toLowerCase();
+      if (lower.includes("insufficient")) val = "Insufficient";
+      else if (lower.includes("very satisfied")) val = "Very Satisfied";
+      else if (lower.includes("very unsatisfied")) val = "V. Unsatisfied";
 
-      return (val as string)
+      return val
         .replace(/\b\w/g, c => c.toUpperCase());
     }, {
       id: "sentiment",
@@ -895,11 +908,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 variant={activeTab === "transferred" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setActiveTab("transferred")}
-                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "transferred" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "transferred" && "bg-violet-50 text-violet-700 hover:bg-violet-100")}
               >
-                <ArrowUpRight size={14} className={cn("text-slate-500", activeTab === "transferred" && "text-blue-600")} />
+                <ArrowUpRight size={14} className={cn("text-slate-500", activeTab === "transferred" && "text-violet-600")} />
                 Transferred
-                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-blue-200 text-blue-800")}>
+                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-violet-200 text-violet-800")}>
                   {counts.transferred}
                 </Badge>
               </Button>
@@ -911,9 +924,22 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                 className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
               >
                 <AlertCircle size={14} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
-                Follow-up
+                Follow Up
                 <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
                   {counts.followup}
+                </Badge>
+              </Button>
+
+              <Button
+                variant={activeTab === "callback" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setActiveTab("callback")}
+                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "callback" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+              >
+                <RefreshCw size={14} className={cn("text-slate-500", activeTab === "callback" && "text-blue-600")} />
+                Callback
+                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'callback' && "bg-blue-200 text-blue-800")}>
+                  {counts.callback}
                 </Badge>
               </Button>
 
