@@ -136,9 +136,10 @@ def detailCall(
 
     # Strict Access Check
     if call.client_id != current_user.client_id:
-        raise HTTPException(status_code=404, detail="Call not found") # Hide existence
-        
-    if current_user.role != "admin" and call.user_id != current_user.id:
+         raise HTTPException(status_code=404, detail="Call not found") # Hide existence
+    
+    # Cast user_id to string for comparison (DB returns UUID obj)
+    if current_user.role != "admin" and str(call.user_id) != current_user.id:
          raise HTTPException(status_code=403, detail="Access denied")
     
     # Build response with explicit fields
@@ -217,7 +218,7 @@ async def force_transfer_call(
         raise HTTPException(status_code=403, detail="Access denied")
         
     # Only admins or the owner should transfer? Assuming yes.
-    if current_user.role != "admin" and call.user_id != current_user.id:
+    if current_user.role != "admin" and str(call.user_id) != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not call.control_url:
@@ -295,7 +296,7 @@ def get_call_recording(
     if call.client_id != current_user.client_id:
          raise HTTPException(status_code=404, detail="Recording not found")
 
-    if current_user.role != "admin" and call.user_id != current_user.id:
+    if current_user.role != "admin" and str(call.user_id) != current_user.id:
          raise HTTPException(status_code=403, detail="Access denied")
 
     # If it's already an absolute URL (use it as is)
@@ -347,7 +348,7 @@ def update_call(
     if call.client_id != current_user.client_id:
         raise HTTPException(status_code=404, detail="Call not found")
         
-    if current_user.role != "admin" and call.user_id != current_user.id:
+    if current_user.role != "admin" and str(call.user_id) != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
         
     # Update fields if present in payload
