@@ -486,25 +486,34 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
     const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
     // Prepare Source URL
-    const getSrc = () => {
-        if (!call.recording_url) return "";
-        return call.recording_url.startsWith("http")
-            ? call.recording_url
-            : `${backendUrl}/api/recordings/${call.recording_url}`;
-    };
+    // Prepare Source URL - Use Secure Endpoint
     const [src, setSrc] = useState<string>("");
 
     useEffect(() => {
-        const rawSrc = getSrc();
-        if (rawSrc.includes("/api/recordings/")) {
-            authenticatedFetch(`${rawSrc}?redirect=false`)
-                .then(res => res.ok ? res.json() : { url: rawSrc })
-                .then(data => setSrc(data.url || rawSrc))
-                .catch(() => setSrc(rawSrc));
-        } else {
-            setSrc(rawSrc);
+        if (!call.recording_url) return;
+
+        // If it's already a full HTTP URL (e.g. S3 direct), use it
+        if (call.recording_url.startsWith("http")) {
+            setSrc(call.recording_url);
+            return;
         }
-    }, [call.recording_url]);
+
+        // Otherwise, fetch signed URL from secure backend endpoint
+        const fetchSecureUrl = async () => {
+            try {
+                // This uses the secure call-nested endpoint: /api/calls/{id}/recording
+                const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}/recording`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.url) setSrc(data.url);
+                }
+            } catch (e) {
+                console.error("Failed to load secure recording URL", e);
+            }
+        };
+
+        fetchSecureUrl();
+    }, [call.id, call.recording_url]);
 
 
     const togglePlay = () => {

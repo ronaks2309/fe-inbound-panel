@@ -104,45 +104,13 @@ def read_root():
 def health():
     return {"status": "ok"}
 
-@app.get("/api/recordings/{filename}")
-async def get_recording(filename: str, redirect: bool = True):
-    """
-    Redirects to a temporary signed URL for the recording file in Supabase storage.
-    If redirect=False, returns the URL in a JSON object: { "url": "..." }
-    """
-    from services.supabase_service import supabase
-    from fastapi.responses import RedirectResponse, JSONResponse
-
-    if not supabase:
-        raise HTTPException(status_code=503, detail="Supabase client not configured")
-
-    try:
-        bucket = os.getenv("SUPABASE_BUCKET", "recordings")
-        # create_signed_url returns { "signedURL": "..." } or similar depending on version
-        res = supabase.storage.from_(bucket).create_signed_url(filename, 172800) # 48 hours expiry
-        
-        signed_url = None
-        if isinstance(res, dict):
-             signed_url = res.get("signedURL")
-        elif isinstance(res, str):
-             # Some versions might return string? usually dict.
-             signed_url = res
-             
-        # Fallback if the lib returns the URL in a different dict key in future versions
-        if not signed_url and isinstance(res, dict) and "url" in res:
-            signed_url = res["url"]
-
-        if not signed_url:
-            print(f"[get_recording] Failed to get signed URL. Response: {res}")
-            raise HTTPException(status_code=404, detail="Could not generate access link")
-
-        if redirect:
-            return RedirectResponse(url=signed_url)
-        else:
-            return JSONResponse(content={"url": signed_url})
-    except Exception as e:
-        print(f"[get_recording] Error generating signed URL: {e}")
-        raise HTTPException(status_code=404, detail="Recording not found or access denied")
+# @app.get("/api/recordings/{filename}")
+# async def get_recording(filename: str, redirect: bool = True):
+#    """
+#    DEPRECATED / REMOVED FOR SECURITY.
+#    Use /api/calls/{call_id}/recording instead.
+#    """
+#    raise HTTPException(status_code=410, detail="This endpoint is deprecated. Use the secure /api/calls/{id}/recording endpoint.")
 
 # --- Register Routers --- #
 app.include_router(webhooks.router)
