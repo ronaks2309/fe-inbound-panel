@@ -35,3 +35,32 @@ def get_user_by_id(user_id: str):
     except Exception as e:
         print(f"Error fetching user {user_id}: {e}")
         return None
+
+
+def create_signed_url(file_path: str, bucket_name: str = "recordings", expiry: int = 3600) -> str | None:
+    """
+    Generates a signed URL for a file in a Supabase storage bucket.
+    Handles 'http' checks and dict/str response types.
+    """
+    if not file_path:
+        return None
+        
+    # If it's already a full URL, return as is
+    if file_path.startswith("http"):
+        return file_path
+
+    if not supabase:
+        logging.warning("Supabase client not initialized, cannot sign URL.")
+        return None
+        
+    try:
+        res = supabase.storage.from_(bucket_name).create_signed_url(file_path, expiry)
+        
+        if isinstance(res, dict):
+             return res.get("signedURL")
+        elif isinstance(res, str):
+             return res
+        return None
+    except Exception as e:
+        logging.error(f"Error signing URL for {file_path}: {e}")
+        return None

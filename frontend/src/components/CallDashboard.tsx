@@ -110,6 +110,7 @@ export type Call = {
   notes?: string | null;
   feedback_rating?: number | null;
   feedback_text?: string | null;
+  signed_recording_url?: string | null;
 };
 
 // CUSTOM FILTER FUNCTIONS
@@ -536,114 +537,186 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
 
   // HANDLER: Download CSV
-  const handleDownloadCSV = () => {
-    if (!filteredCalls.length) return;
-    const headers = ["ID", "Phone", "User", "Status", "Duration", "Created At", "Sentiment"];
-    const csvContent = [
-      headers.join(","),
-      ...filteredCalls.map(c => [
-        c.id,
-        c.phone_number,
-        c.username || c.user_id,
-        c.status,
-        c.duration,
-        c.created_at,
-        c.sentiment
-      ].map(f => `"${String(f || '').replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
+  const [exporting, setExporting] = useState(false);
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `calls_export_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownloadCSV = async () => {
+    try {
+      setExporting(true);
+      // Fetch fresh data including heavy fields
+      const heavyCalls = await fetchCalls(true);
+
+      // Apply Client-Side Tab Filters to the heavy data
+      // (Replicating the logic from the filteredCalls useMemo)
+      const callsToExport = heavyCalls.filter((c: any) => {
+        const s = (c.status || "").toLowerCase();
+        const d = (c.disposition || "").toLowerCase();
+
+        if (activeTab === "all") return true;
+        if (activeTab === "live") return ["in-progress", "ringing", "queued"].includes(s);
+        if (activeTab === "transferred") return d === "transferred";
+        if (activeTab === "followup") return d === "follow_up_needed";
+        if (activeTab === "callback") return d === "callback_requested";
+
+        return true;
+      });
+
+      if (!callsToExport.length) {
+        setExporting(false);
+        return;
+      }
+
+      const headers = [
+        "ID",
+        "Phone",
+        "User",
+        "Status",
+        "Duration",
+        "Created At",
+        "Sentiment",
+        "Disposition",
+        "Transcript",
+        "Summary",
+        "Notes",
+        "Feedback Rating",
+        "Feedback Text",
+        "Recording URL"
+      ];
+
+      const csvContent = [
+        headers.join(","),
+        ...callsToExport.map((c: any) => {
+          // Extract summary text if available
+          let summaryText = "";
+          if (c.summary && typeof c.summary === 'object' && 'summary' in c.summary) {
+            summaryText = (c.summary as any).summary;
+          } else if (c.summary) {
+            summaryText = JSON.stringify(c.summary);
+          }
+
+          return [
+            c.id,
+            c.phone_number,
+            c.username || c.user_id,
+            c.status,
+            c.duration,
+            c.created_at,
+            c.sentiment,
+            c.disposition,
+            c.final_transcript,
+            summaryText,
+            c.notes,
+            c.feedback_rating,
+            c.feedback_text,
+            c.signed_recording_url
+          ].map(f => `"${String(f || '').replace(/"/g, '""')}"`).join(",")
+        })
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `calls_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      console.error("Export failed:", e);
+      // Optional: show toast error
+    } finally {
+      setExporting(false);
+    }
+  };
+
+
+  const fetchCalls = async (includeContent = false) => {
+    if (!userInfo) return [];
+
+    const metadata = userInfo.user_metadata || {};
+    const tenantId = metadata.tenant_id || "demo-client";
+    const role = metadata.role || "admin";
+
+    let url = `${backendUrl}/api/${tenantId}/calls`;
+    const params = new URLSearchParams();
+    if (role === 'user') {
+      params.append('user_id', userInfo.id);
+    }
+    if (includeContent) {
+      params.append('include_content', 'true');
+    }
+
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    console.log("Fetching calls from:", url);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
+    if (!token) {
+      throw new Error("No authentication token found");
+    }
+
+    const res = await fetch(url, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (res.status === 401) {
+      throw new Error("Unauthorized - Please log in again");
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    return data.map((c: any) => ({
+      id: String(c.id),
+      client_id: c.client_id,
+      phone_number: c.phone_number ?? c.phoneNumber ?? null,
+      status: c.status,
+      started_at: c.started_at ?? c.startedAt ?? null,
+      created_at: c.created_at ?? new Date().toISOString(),
+      ended_at: c.ended_at ?? c.endedAt ?? null,
+      has_listen_url: c.hasListenUrl ?? false,
+
+      user_id: c.user_id ?? c.userId ?? null,
+      username: c.username ?? null,
+      duration: c.duration ?? null,
+
+      hasTranscript: c.hasTranscript ?? false,
+      hasLiveTranscript: c.hasLiveTranscript ?? !!c.live_transcript,
+      hasFinalTranscript: c.hasFinalTranscript ?? !!c.final_transcript,
+      hasRecording: !!c.recording_url,
+
+      recording_url: c.recording_url ?? c.recordingUrl ?? null,
+
+      live_transcript: c.live_transcript ?? null,
+      final_transcript: c.final_transcript ?? null,
+      summary: c.summary ?? null,
+
+      signed_recording_url: c.signed_recording_url ?? null,
+
+      detailsLoaded: false,
+      sentiment: c.sentiment || null,
+      disposition: c.disposition || null,
+      notes: c.notes || null,
+      feedback_rating: c.feedback_rating || null,
+      feedback_text: c.feedback_text || null
+    }));
   };
 
   // EFFECT 1: Load initial calls via HTTP depending on user info
   useEffect(() => {
     async function loadCalls() {
-      if (!userInfo) return; // Wait for user info to be loaded
-
-      const metadata = userInfo.user_metadata || {};
-      const tenantId = metadata.tenant_id || "demo-client";
-      const role = metadata.role || "admin";
-
-      // Determine API URL
-      // If agent, filter by their Supabase UUID (user.id) or username depending on how backend stores it
-      // We will assume backend stores the Supabase User ID (UUID) if assigned
-      // Or we can pass it, and if no calls match, so be it.
-      let url = `${backendUrl}/api/${tenantId}/calls`;
-
-      if (role === 'user') {
-        // Pass the user's ID as user_id filter
-        // Note: Backend must support this query param
-        url += `?user_id=${userInfo.id}`;
-      }
-
-      console.log("Fetching calls from:", url);
-
       try {
         setLoading(true);
         setError(null);
-
-        // Get fresh session token
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-
-        if (!token) {
-          throw new Error("No authentication token found");
-        }
-
-        const res = await fetch(url, {
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json" // Good practice
-          }
-        });
-
-        if (res.status === 401) {
-          throw new Error("Unauthorized - Please log in again");
-        }
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json();
-
-        // Normalize/derive flags from backend fields
-        const normalized: Call[] = data.map((c: any) => {
-          return {
-            id: String(c.id),
-            client_id: c.client_id,
-            phone_number: c.phone_number ?? c.phoneNumber ?? null,
-            status: c.status,
-            started_at: c.started_at ?? c.startedAt ?? null,
-            created_at: c.created_at ?? new Date().toISOString(), // Fallback if missing
-            ended_at: c.ended_at ?? c.endedAt ?? null,
-            has_listen_url: c.hasListenUrl ?? false,
-
-            user_id: c.user_id ?? c.userId ?? null,
-            username: c.username ?? null,
-            duration: c.duration ?? null,
-
-            hasTranscript: c.hasTranscript ?? false,
-            hasLiveTranscript: c.hasLiveTranscript ?? !!c.live_transcript,
-            hasFinalTranscript: c.hasFinalTranscript ?? !!c.final_transcript,
-            hasRecording: !!c.recording_url,
-
-            recording_url: c.recording_url ?? c.recordingUrl ?? null,
-
-            live_transcript: c.live_transcript ?? null,
-            final_transcript: c.final_transcript ?? null,
-
-            detailsLoaded: false,
-            sentiment: c.sentiment || null,
-            disposition: c.disposition || null
-          };
-        });
-
+        const normalized = await fetchCalls(false);
         setCalls(normalized);
       } catch (e: any) {
         console.error("Error fetching calls:", e);
@@ -653,8 +726,10 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       }
     }
 
-    loadCalls();
-  }, [userInfo]); // Re-run when userInfo loads
+    if (userInfo) {
+      loadCalls();
+    }
+  }, [userInfo]);
 
   // EFFECT: Load user info
   // EFFECT: Load user info - REMOVED (passed as prop)
@@ -697,6 +772,10 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         c.liveTranscript ?? c.live_transcript ?? undefined,
       sentiment: c.sentiment ?? undefined,
       disposition: c.disposition ?? undefined,
+      summary: c.summary ?? undefined,
+      notes: c.notes ?? undefined,
+      feedback_rating: c.feedback_rating ?? undefined,
+      feedback_text: c.feedback_text ?? undefined,
     };
 
     // STATE UPDATE WITH CALLBACK: Use callback pattern when new state depends on old state
@@ -969,9 +1048,20 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                   <RefreshCw size={13} className="-ml-0.5" />
                   Refresh
                 </Button>
-                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3" title="Download CSV" onClick={handleDownloadCSV}>
-                  <Download size={13} className="-ml-0.5" />
-                  Export
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3"
+                  title="Download CSV"
+                  onClick={handleDownloadCSV}
+                  disabled={exporting}
+                >
+                  {exporting ? (
+                    <RefreshCw size={13} className="-ml-0.5 animate-spin" />
+                  ) : (
+                    <Download size={13} className="-ml-0.5" />
+                  )}
+                  {exporting ? 'Exporting...' : 'Export'}
                 </Button>
               </div>
             </div>

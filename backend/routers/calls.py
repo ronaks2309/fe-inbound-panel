@@ -8,7 +8,8 @@ from services.call_service import CallService
 import httpx
 import os
 from pydantic import BaseModel
-from services.supabase_service import supabase
+from pydantic import BaseModel
+from services.supabase_service import supabase, create_signed_url
 from typing import Optional, List
 from datetime import datetime, timezone
 from dependencies.auth import get_current_user, UserContext, get_secure_session
@@ -48,22 +49,28 @@ class CallListResponse(BaseModel):
     feedback_rating: Optional[int] = None
     feedback_text: Optional[str] = None
     
+    # Heavy fields (now included in list)
+    final_transcript: Optional[str] = None
+    summary: Optional[dict] = None
+    
     # Computed boolean flags (not in DB model)
     hasListenUrl: bool
     hasLiveTranscript: bool
     hasFinalTranscript: bool
+    
+    # Export-only fields
+    signed_recording_url: Optional[str] = None
 
 
 class CallDetailResponse(CallListResponse):
     """Response model for single call endpoint - includes full transcript and summary"""
     live_transcript: Optional[str] = None
-    final_transcript: Optional[str] = None
-    summary: Optional[dict] = None
 
 
 @router.get("/api/{client_id}/calls", response_model=List[CallListResponse])
 def listCalls(
     client_id: str, 
+    include_content: bool = False,
     user_id: Optional[str] = None, 
     session: Session = Depends(get_secure_session),
     current_user: UserContext = Depends(get_current_user)
@@ -71,6 +78,7 @@ def listCalls(
     """
     List calls for a specific client.
     Returns lightweight call summaries without heavy transcript/summary fields.
+    Use include_content=True to get full transcript/summary data (slower).
     """
     # 1. Strict Tenant/Client Check
     if current_user.client_id != client_id:
@@ -87,8 +95,17 @@ def listCalls(
     calls = session.exec(stmt).all()
     
     # Build response list with explicit fields
-    response = [
-        CallListResponse(
+    response = []
+    bucket_name = os.getenv("SUPABASE_BUCKET", "recordings")
+    
+    for c in calls:
+        # Calculate heavy fields only if requested
+        signed_url = None
+        if include_content and c.recording_url:
+             # 7 days expiry for exports
+             signed_url = create_signed_url(c.recording_url, bucket_name, 3600 * 24 * 7)
+
+        response.append(CallListResponse(
             # Explicitly include only the fields we want
             id=c.id,
             client_id=c.client_id,
@@ -109,13 +126,15 @@ def listCalls(
             notes=c.notes,
             feedback_rating=c.feedback_rating,
             feedback_text=c.feedback_text,
+            # Heavy fields (conditional)
+            final_transcript=c.final_transcript if include_content else None,
+            summary=c.summary if include_content else None,
+            signed_recording_url=signed_url,
             # Computed flags
             hasListenUrl=bool(c.listen_url),
             hasLiveTranscript=bool(c.live_transcript),
             hasFinalTranscript=bool(c.final_transcript),
-        )
-        for c in calls
-    ]
+        ))
     
     return response
 
@@ -299,35 +318,19 @@ def get_call_recording(
     if current_user.role != "admin" and str(call.user_id) != current_user.id:
          raise HTTPException(status_code=403, detail="Access denied")
 
-    # If it's already an absolute URL (use it as is)
-    if call.recording_url.startswith("http"):
-        return {"url": call.recording_url}
+    bucket = os.getenv("SUPABASE_BUCKET", "recordings")
+    signed_url = create_signed_url(call.recording_url, bucket, 3600 * 24) # 24 hours
 
-    # Otherwise, generate signed URL
-    if not supabase:
-         raise HTTPException(status_code=503, detail="Supabase client not configured")
+    if not signed_url:
+         # Fallback or error
+         # If checking if it was just failure to sign vs not knowing
+         if not supabase:
+             raise HTTPException(status_code=503, detail="Supabase client not configured")
          
-    try:
-        bucket = os.getenv("SUPABASE_BUCKET", "recordings")
-        
-        # NOTE: create_signed_url returns a dict {signedURL: ...} in many versions
-        res = supabase.storage.from_(bucket).create_signed_url(call.recording_url, 3600 * 24) # 24 hours
-        
-        signed_url = None
-        if isinstance(res, dict):
-             signed_url = res.get("signedURL")
-        elif isinstance(res, str):
-             signed_url = res
-             
-        if not signed_url:
-             # Try fallback if response shape differs
-             print(f"Unexpected signed URL response: {res}")
-             raise ValueError("Could not extract signed URL")
+         # Assuming failure to sign
+         raise HTTPException(status_code=500, detail="Failed to generate signed URL")
 
-        return {"url": signed_url}
-    except Exception as e:
-        print(f"Error signing URL: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+    return {"url": signed_url}
 
 
 @router.patch("/api/calls/{call_id}")
