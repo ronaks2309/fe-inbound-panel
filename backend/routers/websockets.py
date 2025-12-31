@@ -68,13 +68,13 @@ async def listen_proxy_websocket(
     # Must belong to client
     if call.client_id != current_user.client_id:
          print(f"[listen-proxy] Access denied: Client {current_user.client_id} -> Call {call.client_id}")
-         await websocket.close(code=4003, reason="Access denied") # 4003 isn't standard WS but used for app errors
+         await websocket.close(code=4003, reason=f"Access denied: Client mismatch {current_user.client_id} vs {call.client_id}")
          return
     
     # If not admin, must be user's call
-    if current_user.role != "admin" and call.user_id != current_user.id:
-         print(f"[listen-proxy] Access denied: User {current_user.id} -> Call {call.user_id}")
-         await websocket.close(code=4003, reason="Access denied")
+    if current_user.role != "admin" and str(call.user_id) != str(current_user.id):
+         print(f"[listen-proxy] Access denied: User {current_user.id} ({current_user.role}) -> Call {call.user_id}")
+         await websocket.close(code=4003, reason=f"Access denied: User {current_user.id} ({current_user.role}) vs Call {call.user_id}")
          return
 
     target_url = call.listen_url

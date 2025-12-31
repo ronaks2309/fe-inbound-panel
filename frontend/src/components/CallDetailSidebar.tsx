@@ -677,6 +677,16 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
     const [isPlaying, setIsPlaying] = useState(true); // Default to playing
     const [volume, setVolume] = useState(0.8);
     const [duration, setDuration] = useState("00:00");
+    const [token, setToken] = useState<string | null>(null);
+
+    // Fetch Token
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session?.access_token) {
+                setToken(session.access_token);
+            }
+        });
+    }, []);
 
     // Refs for audio control
     const audioCtxRef = React.useRef<AudioContext | null>(null);
@@ -730,6 +740,8 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
             return;
         }
 
+        if (!token) return;
+
         let ws: WebSocket | null = null;
         let filterNode: BiquadFilterNode;
         let playHead = 0;
@@ -754,7 +766,7 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
             filterNode.connect(gain);
             gain.connect(ctx.destination);
 
-            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}`;
+            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}?token=${token}`;
             ws = new WebSocket(wsUrl);
             ws.binaryType = "arraybuffer";
             setWsStatus("connecting");
@@ -789,11 +801,13 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
                 }
             };
 
-            ws.onerror = () => {
+            ws.onerror = (e) => {
+                console.error("Live Audio WS Error:", e);
                 setWsStatus("error");
                 setError("Connection failed");
             };
-            ws.onclose = () => {
+            ws.onclose = (e) => {
+                console.log(`Live Audio WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
                 setWsStatus("closed");
             };
 
@@ -809,7 +823,7 @@ const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
             gainNodeRef.current = null;
         };
 
-    }, [call.id, call.has_listen_url]); // Re-run if call ID changes
+    }, [call.id, call.has_listen_url, token]); // Re-run if call ID changes
 
     return (
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] flex items-center gap-4 transition-all hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.08)]">
