@@ -20,6 +20,7 @@ class UserContext(BaseModel):
     id: str
     client_id: str
     role: str
+    username: Optional[str] = None
     display_name: Optional[str]
 
     @property
@@ -68,6 +69,7 @@ def get_current_user(
         id=str(profile.id),
         client_id=profile.client_id,
         role=profile.role,
+        username=profile.username,
         display_name=profile.display_name
     )
 

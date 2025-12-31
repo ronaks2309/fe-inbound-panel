@@ -86,6 +86,7 @@ def create_user():
             "id": user_uuid,
             "client_id": client_id,
             "role": role,
+            "username": user_id,
             "display_name": display_name
         }
         
