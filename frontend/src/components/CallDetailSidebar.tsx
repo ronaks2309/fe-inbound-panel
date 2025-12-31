@@ -494,7 +494,7 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
 
         // If it's already a full HTTP URL (e.g. S3 direct), use it
         if (call.recording_url.startsWith("http")) {
-            setSrc(call.recording_url);
+            setSrc(prev => prev === call.recording_url ? prev : call.recording_url!);
             return;
         }
 
@@ -505,7 +505,9 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
                 const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}/recording`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.url) setSrc(data.url);
+                    if (data.url) {
+                        setSrc(prev => prev === data.url ? prev : data.url);
+                    }
                 }
             } catch (e) {
                 console.error("Failed to load secure recording URL", e);
@@ -516,14 +518,26 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
     }, [call.id, call.recording_url]);
 
 
-    const togglePlay = () => {
-        if (!audioRef.current) return;
-        if (isPlaying) {
-            audioRef.current.pause();
-        } else {
-            audioRef.current.play();
+    const togglePlay = async () => {
+        if (!audioRef.current || !src) return;
+
+        try {
+            if (isPlaying) {
+                audioRef.current.pause();
+                setIsPlaying(false);
+            } else {
+                // play() returns a promise that rejects if interrupted
+                await audioRef.current.play();
+                setIsPlaying(true);
+            }
+        } catch (e: any) {
+            // AbortError is common if user clicks pause/play fast or src changes
+            // NotSupportedError means src is invalid/empty (should be caught by !src check above, but extra safety)
+            if (e.name !== "AbortError") {
+                console.error("Playback error:", e);
+                setIsPlaying(false);
+            }
         }
-        setIsPlaying(!isPlaying);
     };
 
     const handleTimeUpdate = () => {
@@ -587,7 +601,8 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
             {/* Play/Pause */}
             <button
                 onClick={togglePlay}
-                className="h-8 w-8 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors flex-shrink-0"
+                disabled={!src}
+                className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors flex-shrink-0 ${!src ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
             >
                 {isPlaying ? <Pause size={14} className="fill-current" /> : <Play size={14} className="fill-current ml-0.5" />}
             </button>
