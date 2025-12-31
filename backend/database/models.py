@@ -77,3 +77,13 @@ class CallStatusEvent(SQLModel, table=True):
         default=None,
         sa_column=Column(JSON)
     )
+
+
+class Profile(SQLModel, table=True):
+    __tablename__ = "profiles"
+    id: str = Field(primary_key=True) # References auth.users(id)
+    client_id: str
+    role: str = Field(default="user")
+    display_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

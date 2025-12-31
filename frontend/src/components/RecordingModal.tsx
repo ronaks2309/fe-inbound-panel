@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 import type { Call } from "./CallDashboard";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
-
 
 type RecordingModalProps = {
     call: Call | null;
@@ -25,27 +25,37 @@ export const RecordingModal: React.FC<RecordingModalProps> = ({ call, onClose })
             return;
         }
 
-        // Fetch secure signed URL
-        setLoading(true);
-        setError(null);
+        const fetchSecureUrl = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                const token = session?.access_token;
 
-        fetch(`${backendUrl}/api/calls/${call.id}/recording`)
-            .then(res => {
+                const headers: HeadersInit = {};
+                if (token) {
+                    headers["Authorization"] = `Bearer ${token}`;
+                }
+
+                const res = await fetch(`${backendUrl}/api/calls/${call.id}/recording`, {
+                    headers
+                });
+
                 if (!res.ok) throw new Error("Failed to load recording");
-                return res.json();
-            })
-            .then(data => {
+                const data = await res.json();
+
                 if (active && data.url) {
                     setAudioSrc(data.url);
                 }
-            })
-            .catch(err => {
+            } catch (err) {
                 if (active) setError("Could not load recording.");
                 console.error(err);
-            })
-            .finally(() => {
+            } finally {
                 if (active) setLoading(false);
-            });
+            }
+        };
+
+        fetchSecureUrl();
 
         return () => { active = false; };
     }, [call]);

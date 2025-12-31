@@ -1,4 +1,5 @@
 import React from "react";
+import { supabase } from "../lib/supabase";
 import type { Call } from "./CallDashboard";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
@@ -64,114 +65,103 @@ export const ListenModal: React.FC<ListenModalProps> = ({ call, onClose }) => {
         let totalBytes = 0;
         let ws: WebSocket | null = null;
 
-        setWsStatus("connecting");
+        const connectWs = async () => {
+            setWsStatus("connecting");
 
-        try {
-            // Use backend proxy instead of direct VAPI URL
-            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}`;
-            console.log("[ListenModal] Connecting to proxy:", wsUrl);
-            ws = new WebSocket(wsUrl);
-            ws.binaryType = "arraybuffer";
-        } catch (err) {
-            console.error("[ListenModal] Failed to open WS:", err);
-            setWsStatus("error");
-            setAudioError("Failed to open WebSocket connection.");
-            audioCtx.close();
-            return;
-        }
-
-        ws.onopen = async () => {
-            console.log("[ListenModal] WS open");
-            setWsStatus("open");
             try {
-                await audioCtx.resume();
-            } catch (e) {
-                console.warn("[ListenModal] audioCtx.resume() failed:", e);
+                const { data: { session } } = await supabase.auth.getSession();
+                const token = session?.access_token;
+
+                if (!token) {
+                    setWsStatus("error");
+                    setAudioError("Authentication failed (no token).");
+                    return;
+                }
+
+                // Use backend proxy instead of direct VAPI URL
+                const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}?token=${token}`;
+
+
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = "arraybuffer";
+
+                // Re-attach handlers since ws is new
+                ws.onopen = async () => {
+                    console.log("[ListenModal] WS open");
+                    setWsStatus("open");
+                    try {
+                        await audioCtx.resume();
+                    } catch (e) {
+                        console.warn("[ListenModal] audioCtx.resume() failed:", e);
+                    }
+                };
+
+                ws.onmessage = (event) => {
+                    if (typeof event.data === "string") {
+                        try {
+                            const msg = JSON.parse(event.data);
+                            console.log("[ListenModal] text frame:", msg);
+                        } catch {
+                            console.log("[ListenModal] text frame (raw):", event.data);
+                        }
+                        return;
+                    }
+
+                    // ---- Binary audio frame ----
+                    const buf = event.data as ArrayBuffer;
+                    const int16 = new Int16Array(buf);
+
+                    totalBytes += buf.byteLength;
+                    setBytesReceived(totalBytes);
+
+                    try {
+                        const frameCount = int16.length;
+                        const audioBuffer = audioCtx.createBuffer(1, frameCount, SAMPLE_RATE);
+                        const channelData = audioBuffer.getChannelData(0);
+                        for (let i = 0; i < frameCount; i++) {
+                            channelData[i] = int16[i] / 32768;
+                        }
+
+                        const source = audioCtx.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(filterNode);
+
+                        const now = audioCtx.currentTime;
+                        if (playHeadRef.current === null || playHeadRef.current < now) {
+                            playHeadRef.current = now;
+                        }
+
+                        const startTime = playHeadRef.current;
+                        const duration = audioBuffer.duration;
+                        source.start(startTime);
+                        playHeadRef.current = startTime + duration;
+                    } catch (e) {
+                        console.error("[ListenModal] Error decoding audio:", e);
+                        setAudioError("Error decoding audio.");
+                    }
+                };
+
+                ws.onerror = (ev) => {
+                    console.error("[ListenModal] WS error:", ev);
+                    setWsStatus("error");
+                };
+
+                ws.onclose = () => {
+                    console.log("[ListenModal] WS closed");
+                    setWsStatus("closed");
+                };
+
+            } catch (err) {
+                console.error("[ListenModal] Failed to open WS:", err);
+                setWsStatus("error");
+                setAudioError("Failed to open WebSocket connection.");
+                try { audioCtx.close(); } catch { }
             }
         };
 
-        ws.onmessage = (event) => {
-            if (typeof event.data === "string") {
-                // Text frame (metadata)
-                try {
-                    const msg = JSON.parse(event.data);
-                    console.log("[ListenModal] text frame:", msg);
-                } catch {
-                    console.log("[ListenModal] text frame (raw):", event.data);
-                }
-                return;
-            }
-
-            // ---- Binary audio frame ----
-            const buf = event.data as ArrayBuffer;
-            const int16 = new Int16Array(buf);
-
-            totalBytes += buf.byteLength;
-            setBytesReceived(totalBytes);
-
-            try {
-                const frameCount = int16.length;
-                const audioBuffer = audioCtx.createBuffer(
-                    1,           // mono
-                    frameCount,  // number of frames
-                    SAMPLE_RATE
-                );
-
-                const channelData = audioBuffer.getChannelData(0);
-                for (let i = 0; i < frameCount; i++) {
-                    channelData[i] = int16[i] / 32768; // 16-bit PCM -> float
-                }
-
-                const source = audioCtx.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(filterNode);
-
-                // ---- Smooth scheduling: queue chunks back-to-back ----
-                const now = audioCtx.currentTime;
-                if (playHeadRef.current === null || playHeadRef.current < now) {
-                    // first chunk or we've fallen behind → start from "now"
-                    playHeadRef.current = now;
-                }
-
-                const startTime = playHeadRef.current;
-                const duration = audioBuffer.duration;
-
-                // Schedule this chunk
-                source.start(startTime);
-
-                // Advance playhead for next chunk
-                playHeadRef.current = startTime + duration;
-            } catch (e) {
-                console.error("[ListenModal] Error decoding/playing audio:", e);
-                setAudioError("Error while decoding or playing audio.");
-            }
-        };
-
-        ws.onerror = (ev) => {
-            console.error("[ListenModal] WS error:", ev);
-            setWsStatus("error");
-        };
-
-        ws.onclose = () => {
-            console.log("[ListenModal] WS closed");
-            setWsStatus("closed");
-        };
+        connectWs();
 
 
-        return () => {
-            console.log("[ListenModal] cleanup → closing WS + AudioContext");
-            try {
-                ws && ws.close();
-            } catch { }
-            try {
-                filterNode.disconnect();
-                gainNode.disconnect();
-            } catch { }
-            try {
-                audioCtx.close();
-            } catch { }
-            playHeadRef.current = null;
-        };
 
     }, [call?.id, call?.has_listen_url]);
 

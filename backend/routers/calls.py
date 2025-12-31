@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from services.supabase_service import supabase
 from typing import Optional, List
 from datetime import datetime, timezone
+from dependencies.auth import get_current_user, UserContext, get_secure_session
 
 router = APIRouter()
 
@@ -61,19 +62,27 @@ class CallDetailResponse(CallListResponse):
 
 
 @router.get("/api/{client_id}/calls", response_model=List[CallListResponse])
-def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = Depends(get_session)):
+def listCalls(
+    client_id: str, 
+    user_id: Optional[str] = None, 
+    session: Session = Depends(get_secure_session),
+    current_user: UserContext = Depends(get_current_user)
+):
     """
     List calls for a specific client.
     Returns lightweight call summaries without heavy transcript/summary fields.
     """
+    # 1. Strict Tenant/Client Check
+    if current_user.client_id != client_id:
+        raise HTTPException(status_code=403, detail="Access denied to this client")
+
     stmt = (
         select(Call)
-        .where(Call.client_id == client_id)
+        .where(Call.client_id == current_user.client_id)
     )
     
-    if user_id:
-        stmt = stmt.where(Call.user_id == user_id)
-        
+    # Authorization Logic is now handled by RLS via get_secure_session
+    # We just need to query the table, and Postgres filters it for us.
     stmt = stmt.order_by(Call.created_at.desc())
     calls = session.exec(stmt).all()
     
@@ -112,7 +121,11 @@ def listCalls(client_id: str, user_id: Optional[str] = None, session: Session = 
 
 
 @router.get("/api/calls/{call_id}", response_model=CallDetailResponse)
-def detailCall(call_id: str, session: Session = Depends(get_session)):
+def detailCall(
+    call_id: str, 
+    session: Session = Depends(get_secure_session),
+    current_user: UserContext = Depends(get_current_user)
+):
     """
     Get full details for a single call.
     Includes complete transcript and summary data.
@@ -120,6 +133,13 @@ def detailCall(call_id: str, session: Session = Depends(get_session)):
     call = session.get(Call, call_id)
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+
+    # Strict Access Check
+    if call.client_id != current_user.client_id:
+        raise HTTPException(status_code=404, detail="Call not found") # Hide existence
+        
+    if current_user.role != "admin" and call.user_id != current_user.id:
+         raise HTTPException(status_code=403, detail="Access denied")
     
     # Build response with explicit fields
     response = CallDetailResponse(
@@ -161,7 +181,8 @@ async def force_transfer_call(
     client_id: str,
     call_id: str,
     data: dict = Body(...),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_secure_session),
+    current_user: UserContext = Depends(get_current_user)
 ):
     """
     Force-transfer a live CallMark AI call to a human agent using the call's control_url.
@@ -183,11 +204,21 @@ async def force_transfer_call(
     content = data.get("content") or "Transferring your call now"
 
     call = session.get(Call, call_id)
+    
+    # 1. ID checks
     if not call or call.client_id != client_id:
         raise HTTPException(
             status_code=404,
             detail="Call not found for this client.",
         )
+        
+    # 2. Auth checks
+    if current_user.client_id != client_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    # Only admins or the owner should transfer? Assuming yes.
+    if current_user.role != "admin" and call.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if not call.control_url:
         raise HTTPException(
@@ -248,13 +279,24 @@ async def force_transfer_call(
 
 
 @router.get("/api/calls/{call_id}/recording")
-def get_call_recording(call_id: str, session: Session = Depends(get_session)):
+def get_call_recording(
+    call_id: str, 
+    session: Session = Depends(get_secure_session),
+    current_user: UserContext = Depends(get_current_user)
+):
     """
     Get a secure, temporary signed URL for the call recording.
     """
     call = session.get(Call, call_id)
     if not call or not call.recording_url:
         raise HTTPException(status_code=404, detail="Recording not found")
+        
+    # Strictly enforce client boundary
+    if call.client_id != current_user.client_id:
+         raise HTTPException(status_code=404, detail="Recording not found")
+
+    if current_user.role != "admin" and call.user_id != current_user.id:
+         raise HTTPException(status_code=403, detail="Access denied")
 
     # If it's already an absolute URL (use it as is)
     if call.recording_url.startswith("http"):
@@ -288,13 +330,25 @@ def get_call_recording(call_id: str, session: Session = Depends(get_session)):
 
 
 @router.patch("/api/calls/{call_id}")
-def update_call(call_id: str, payload: dict = Body(...), session: Session = Depends(get_session)):
+def update_call(
+    call_id: str, 
+    payload: dict = Body(...), 
+    session: Session = Depends(get_secure_session),
+    current_user: UserContext = Depends(get_current_user)
+):
     """
     Update call details like notes and feedback.
     """
     call = session.get(Call, call_id)
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+        
+    # Permission Check
+    if call.client_id != current_user.client_id:
+        raise HTTPException(status_code=404, detail="Call not found")
+        
+    if current_user.role != "admin" and call.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
         
     # Update fields if present in payload
     if "notes" in payload:

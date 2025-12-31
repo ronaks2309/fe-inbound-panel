@@ -7,6 +7,7 @@ from sqlmodel import Session
 from database.connection import get_session, engine
 from database.models import Call
 from services.websocket_manager import manager
+from dependencies.ws_auth import get_current_user_ws, UserContext
 
 router = APIRouter()
 
@@ -43,10 +44,16 @@ async def fake_audio_websocket(ws: WebSocket):
 
 
 @router.websocket("/ws/listen/{call_id}")
-async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Session = Depends(get_session)):
+async def listen_proxy_websocket(
+    websocket: WebSocket, 
+    call_id: str, 
+    session: Session = Depends(get_session),
+    current_user: UserContext = Depends(get_current_user_ws)
+):
     """
     Proxies audio from an upstream CallMark AI listenUrl to the client.
     Hides the upstream URL from the client.
+    Strictly enforces access control.
     """
     await websocket.accept()
     
@@ -56,6 +63,19 @@ async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Se
         print(f"[listen-proxy] Call {call_id} not found or missing listen_url")
         await websocket.close(code=1000, reason="No listen URL found")
         return
+
+    # 2. Strict Access Control
+    # Must belong to client
+    if call.client_id != current_user.client_id:
+         print(f"[listen-proxy] Access denied: Client {current_user.client_id} -> Call {call.client_id}")
+         await websocket.close(code=4003, reason="Access denied") # 4003 isn't standard WS but used for app errors
+         return
+    
+    # If not admin, must be user's call
+    if current_user.role != "admin" and call.user_id != current_user.id:
+         print(f"[listen-proxy] Access denied: User {current_user.id} -> Call {call.user_id}")
+         await websocket.close(code=4003, reason="Access denied")
+         return
 
     target_url = call.listen_url
     print(f"[listen-proxy] Proxying {call_id} -> {target_url}")
@@ -112,21 +132,23 @@ async def listen_proxy_websocket(websocket: WebSocket, call_id: str, session: Se
 @router.websocket("/ws/dashboard")
 async def ws_dashboard(
     ws: WebSocket, 
-    user_id: str | None = None,
-    role: str = "user",
-    tenant_id: str | None = None
+    # user_id/role/tenant_id params are redundant if we use token, 
+    # BUT manager.register_dashboard uses them.
+    # We should extract them from current_user.
+    current_user: UserContext = Depends(get_current_user_ws)
 ):
     """
     Main dashboard WebSocket.
     Handles real-time updates for call lists and live transcripts.
-    user_id: Optional query param to filter events for a specific user.
-    role: "admin" or "user". Admins see all calls in their tenant.
-    tenant_id: Required for scoping events.
+    Strictly authenticated via Supabase JWT (Query Param: ?token=...)
     """
-    # Extract params from query if not injected (FastAPI handles this mostly, but good to be explicit in doc)
+    # Use trusted data from UserContext
+    user_id = current_user.id
+    role = current_user.role
+    tenant_id = current_user.client_id
     
     await manager.register_dashboard(ws, user_id=user_id, role=role, tenant_id=tenant_id)
-    print("Dashboard WS client connected")
+    print(f"Dashboard WS client connected: {user_id} ({role}) @ {tenant_id}")
 
     # send an initial hello just to verify
     await ws.send_json({"type": "hello", "message": "Dashboard WebSocket connected"})

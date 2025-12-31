@@ -36,9 +36,26 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "./ui/popover";
+import { supabase } from "../lib/supabase";
 import type { Call } from "./CallDashboard";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
+// Helper for authenticated requests
+const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("No authentication token available");
+
+    const headers = {
+        ...(options.headers || {}),
+        "Authorization": `Bearer ${token}`
+    };
+
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) throw new Error("Unauthorized");
+    return res;
+};
 
 interface CallDetailSidebarProps {
     call: Call | null;
@@ -70,7 +87,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
         if (call.detailsLoaded) return;
 
         console.log("Fetching full details for call:", call.id);
-        fetch(`${backendUrl}/api/calls/${call.id}`)
+        authenticatedFetch(`${backendUrl}/api/calls/${call.id}`)
             .then(res => {
                 if (!res.ok) throw new Error("Failed to load details");
                 return res.json();
@@ -116,7 +133,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
     const handleSaveNotes = async () => {
         try {
-            const res = await fetch(`${backendUrl}/api/calls/${call.id}`, {
+            const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ notes })
@@ -133,7 +150,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
     const handleSaveFeedback = async () => {
         try {
-            const res = await fetch(`${backendUrl}/api/calls/${call.id}`, {
+            const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -157,7 +174,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
         setTakingOver(true);
         try {
-            const res = await fetch(`${backendUrl}/api/${call.client_id || 'demo-client'}/calls/${call.id}/force-transfer`, {
+            const res = await authenticatedFetch(`${backendUrl}/api/${call.client_id || 'demo-client'}/calls/${call.id}/force-transfer`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -480,7 +497,7 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
     useEffect(() => {
         const rawSrc = getSrc();
         if (rawSrc.includes("/api/recordings/")) {
-            fetch(`${rawSrc}?redirect=false`)
+            authenticatedFetch(`${rawSrc}?redirect=false`)
                 .then(res => res.ok ? res.json() : { url: rawSrc })
                 .then(data => setSrc(data.url || rawSrc))
                 .catch(() => setSrc(rawSrc));

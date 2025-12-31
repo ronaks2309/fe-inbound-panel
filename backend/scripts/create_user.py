@@ -4,11 +4,9 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Load environment variables
-# Look for .env in current dir, then parent dir
 load_dotenv()
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-# Try VITE_ prefix as well since it might be a shared env file
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -24,7 +22,7 @@ except Exception as e:
     sys.exit(1)
 
 def create_user():
-    print("\n--- Create New User (Admin) ---")
+    print("\n--- Create New User (Admin Script) ---")
     
     # 1. User ID (Username)
     user_id = input("Enter User ID (username, e.g. ronaks-demo-client): ").strip()
@@ -41,10 +39,10 @@ def create_user():
     # 3. Display Name
     display_name = input("Enter Display Name (e.g. Ronak Patel): ").strip()
     
-    # 4. Tenant ID
-    tenant_id = input("Enter Tenant ID (Client ID): ").strip()
-    if not tenant_id:
-        print("Error: Tenant ID is required.")
+    # 4. Client ID
+    client_id = input("Enter Client ID: ").strip()
+    if not client_id:
+        print("Error: Client ID is required.")
         return
         
     # 5. User Type
@@ -54,36 +52,55 @@ def create_user():
         return
 
     # Construct fake email for Supabase Auth
-    # We append a fake domain so we can map 'username' to 'email'
     email = f"{user_id}@fe-inbound.internal"
     
     print(f"\nCreating user...")
     print(f"  Username: {user_id}")
     print(f"  Email:    {email}")
     print(f"  Role:     {role}")
-    print(f"  Tenant:   {tenant_id}")
+    print(f"  Client:   {client_id}")
     
     try:
-        # Create user via Admin API
-        # Confirm email automatically so they can login immediately
+        # 1. Create user in Supabase Auth
+        print("  - Creating in Auth...")
         response = supabase.auth.admin.create_user({
             "email": email,
             "password": password,
             "email_confirm": True,
             "user_metadata": {
+                # We still keep metadata for convenience/debugging, 
+                # but DB profile is the authority.
                 "username": user_id,
                 "display_name": display_name,
-                "tenant_id": tenant_id,
+                "client_id": client_id,
                 "role": role
             }
         })
         
-        print("\nSUCCESS! User created.")
-        print(f"User UUID: {response.user.id}")
-        print("Share the User ID and Password with the user.")
+        user_uuid = response.user.id
+        print(f"    -> Auth Success. UUID: {user_uuid}")
+
+        # 2. Create Profile in Postgres
+        print("  - Creating Profile row...")
+        profile_data = {
+            "id": user_uuid,
+            "client_id": client_id,
+            "role": role,
+            "display_name": display_name
+        }
+        
+        # Upsert into profiles table
+        supabase.table("profiles").upsert(profile_data).execute()
+        print("    -> Profile Success.")
+        
+        print("\nSUCCESS! User fully created.")
+        print(f"User UUID: {user_uuid}")
         
     except Exception as e:
         print(f"\nFAILED to create user: {e}")
+        # Note: If auth succeeded but profile failed, we have a zombie user.
+        # In a real script we might try to delete the auth user or warn.
+        print("WARNING: If 'Auth Success' happened but 'Profile Success' failed, you may need to delete the user manually.")
 
 if __name__ == "__main__":
     create_user()

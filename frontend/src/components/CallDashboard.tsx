@@ -58,6 +58,7 @@ import { DataTableFacetedFilter } from "./table/DataTableFacetedFilter";
 import { DataTableDateFilter } from "./table/DataTableDateFilter";
 import { DataTableNumberFilter } from "./table/DataTableNumberFilter";
 import { DataTableTextFilter } from "./table/DataTableTextFilter";
+import { supabase } from "../lib/supabase"; // Import Supabase client
 
 // ... existing imports ...
 import { CallDetailSidebar } from "./CallDetailSidebar";
@@ -587,7 +588,25 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(url);
+
+        // Get fresh session token
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        if (!token) {
+          throw new Error("No authentication token found");
+        }
+
+        const res = await fetch(url, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json" // Good practice
+          }
+        });
+
+        if (res.status === 401) {
+          throw new Error("Unauthorized - Please log in again");
+        }
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -732,76 +751,78 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
   // EFFECT 2: WebSocket connection for real-time dashboard updates
   // This effect runs ONCE on mount and stays open until component unmounts
+  // EFFECT 2: WebSocket connection for real-time dashboard updates
   useEffect(() => {
-    let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+    let ws: WebSocket | null = null;
+    let active = true;
 
-    // Auth: Pass user_id, role, and tenant_id if valid user
-    if (userInfo && userInfo.id) {
-      const metadata = userInfo.user_metadata || {};
-      wsUrl += `?user_id=${userInfo.id}&role=${metadata.role || 'user'}&tenant_id=${metadata.tenant_id || 'demo-client'}`;
-    }
+    const connectWs = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!active) return;
 
-    console.log("Connecting WebSocket to:", wsUrl);
-
-    // Create WebSocket connection that will stay open for entire session
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws; // Store in ref so other parts of component can access it
-
-    ws.onopen = () => {
-      console.log("Dashboard WS open");
-    };
-
-    // EVENT HANDLER: This function runs every time a message arrives from the server
-    // The WebSocket stays open and this listener remains active the entire time
-    ws.onmessage = (event) => {
-      // console.log("Dashboard WS raw message:", event.data);
-      try {
-        const msg = JSON.parse(event.data as string);
-
-        if (msg.type === "call-upsert") {
-          console.log("Dashboard WS call-upsert:", msg);
-          handleCallUpsert(msg); // Update state with new/updated call data
-        } else if (msg.type === "transcript-update") {
-          console.log("Dashboard WS transcript-update:", msg);
-
-          const callId: string = msg.callId;
-          const fullTranscript: string | undefined = msg.fullTranscript;
-
-          setCalls((prev) =>
-            prev.map((c) =>
-              c.id === callId
-                ? {
-                  ...c,
-                  hasLiveTranscript: true,
-                  live_transcript:
-                    fullTranscript ?? c.live_transcript ?? null,
-                }
-                : c
-            )
-          );
-        } else {
-          console.log("Dashboard WS other message:", msg);
-        }
-      } catch (err) {
-        console.warn("Failed to parse WS message as JSON", err);
+      const token = session?.access_token;
+      if (!token) {
+        console.warn("No auth token for WebSocket");
+        return;
       }
+
+      let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
+      wsUrl += `?token=${token}`;
+
+      //console.log("Connecting WebSocket to:", wsUrl);
+
+      // Create WebSocket connection
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("Dashboard WS open");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data as string);
+
+          if (msg.type === "call-upsert") {
+            console.log("Dashboard WS call-upsert:", msg);
+            handleCallUpsert(msg);
+          } else if (msg.type === "transcript-update") {
+            console.log("Dashboard WS transcript-update:", msg);
+            const callId: string = msg.callId;
+            const fullTranscript: string | undefined = msg.fullTranscript;
+            setCalls((prev) =>
+              prev.map((c) =>
+                c.id === callId
+                  ? { ...c, hasLiveTranscript: true, live_transcript: fullTranscript ?? c.live_transcript ?? null }
+                  : c
+              )
+            );
+          } else {
+            console.log("Dashboard WS other message:", msg);
+          }
+        } catch (err) {
+          console.warn("Failed to parse WS message as JSON", err);
+        }
+      };
+
+      ws.onerror = (event) => {
+        console.error("Dashboard WS error:", event);
+      };
+
+      ws.onclose = () => {
+        console.log("Dashboard WS closed");
+      };
     };
 
+    connectWs();
 
-    ws.onerror = (event) => {
-      console.error("Dashboard WS error:", event);
-    };
-
-    ws.onclose = () => {
-      console.log("Dashboard WS closed");
-    };
-
-    // CLEANUP FUNCTION: React calls this automatically when component unmounts (you leave the page)
-    // This prevents memory leaks by closing the WebSocket connection
+    // CLEANUP FUNCTION
     return () => {
-      ws.close();
-      wsRef.current = null;
+      active = false;
+      if (ws) ws.close();
     };
+
+
   }, [userInfo]); // Re-run when userInfo loads (so we attach user_id to WS)
 
   // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
