@@ -22,6 +22,7 @@ class UserContext(BaseModel):
     role: str
     username: Optional[str] = None
     display_name: Optional[str]
+    token: Optional[str] = None
 
     @property
     def is_admin(self) -> bool:
@@ -70,7 +71,8 @@ def get_current_user(
         client_id=profile.client_id,
         role=profile.role,
         username=profile.username,
-        display_name=profile.display_name
+        display_name=profile.display_name,
+        token=token
     )
 
 def get_secure_session(current_user: UserContext = Depends(get_current_user)):

@@ -103,7 +103,7 @@ def listCalls(
         signed_url = None
         if include_content and c.recording_url:
              # 7 days expiry for exports
-             signed_url = create_signed_url(c.recording_url, bucket_name, 3600 * 24 * 7)
+             signed_url = create_signed_url(c.recording_url, bucket_name, 3600 * 24 * 7, token=current_user.token)
 
         response.append(CallListResponse(
             # Explicitly include only the fields we want
@@ -319,7 +319,7 @@ def get_call_recording(
          raise HTTPException(status_code=403, detail="Access denied")
 
     bucket = os.getenv("SUPABASE_BUCKET", "recordings")
-    signed_url = create_signed_url(call.recording_url, bucket, 3600 * 24) # 24 hours
+    signed_url = create_signed_url(call.recording_url, bucket, 3600 * 24, token=current_user.token) # 24 hours
 
     if not signed_url:
          # Fallback or error
