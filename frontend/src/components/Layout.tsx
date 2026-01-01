@@ -12,6 +12,7 @@ import {
     DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { supabase } from "../lib/supabase";
+import { toast } from "sonner";
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -31,6 +32,22 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
         // Since we are in SPA, we might need to rely on Auth state change listener in App.tsx to redirect,
         // or force a window location change.
         window.location.href = "/";
+    };
+
+    const handleFeatureComingSoon = (featureName: string) => {
+        const messages = [
+            `Hold your horses! ${featureName} is still in the oven. 🐴`,
+            `The elves are still crafting the ${featureName} section. Check back soon! 🧝`,
+            `Whoops! ${featureName} isn't ready for prime time just yet. 🎬`,
+            `We're polishing ${featureName} to perfection. Patience is a virtue! 💎`,
+            `Construction zone! ${featureName} is getting a makeover. 🚧`,
+            `Our bit-hamsters are working hard on ${featureName}. Give them a moment! 🐹`,
+            `404: ${featureName} motivation found, but code is still loading. 🔋`
+        ];
+        const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+        toast.info(randomMessage, {
+            description: "Thanks for exploring! We're building this as fast as we can."
+        });
     };
 
     return (
@@ -53,10 +70,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
                         <Button variant="ghost" className="text-blue-600 bg-blue-50 font-medium">
                             Call Monitor
                         </Button>
-                        <Button variant="ghost" className="text-slate-500 hover:text-slate-900">
+                        <Button
+                            variant="ghost"
+                            className="text-slate-500 hover:text-slate-900"
+                            onClick={() => handleFeatureComingSoon("Reports")}
+                        >
                             Reports
                         </Button>
-                        <Button variant="ghost" className="text-slate-500 hover:text-slate-900">
+                        <Button
+                            variant="ghost"
+                            className="text-slate-500 hover:text-slate-900"
+                            onClick={() => handleFeatureComingSoon("Settings")}
+                        >
                             Settings
                         </Button>
                     </nav>
@@ -64,10 +89,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
                     <div className="ml-auto flex items-center gap-4">
                         {/* Status Toggle */}
                         <div className="flex items-center rounded-lg bg-slate-100 p-1">
-                            <button className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-blue-600 shadow-sm border border-slate-200">
+                            <button
+                                className="rounded-md bg-white px-3 py-1 text-xs font-semibold text-blue-600 shadow-sm border border-slate-200"
+                                onClick={() => handleFeatureComingSoon("Status Toggle")}
+                            >
                                 ONLINE
                             </button>
-                            <button className="px-3 py-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+                            <button
+                                className="px-3 py-1 text-xs font-medium text-slate-500 hover:text-slate-700"
+                                onClick={() => handleFeatureComingSoon("Status Toggle")}
+                            >
                                 OFFLINE
                             </button>
                         </div>
@@ -75,7 +106,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
                         <Separator orientation="vertical" className="h-6" />
 
                         {/* Notifications */}
-                        <Button variant="ghost" size="icon" className="text-slate-400 hover:text-slate-600">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-slate-400 hover:text-slate-600"
+                            onClick={() => handleFeatureComingSoon("Notifications")}
+                        >
                             <Bell size={20} />
                         </Button>
 
@@ -99,11 +135,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
                                     </div>
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleFeatureComingSoon("Profile")}>
                                     <User className="mr-2 h-4 w-4" />
                                     <span>Profile</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleFeatureComingSoon("Notifications")}>
                                     <Bell className="mr-2 h-4 w-4" />
                                     <span>Notifications</span>
                                 </DropdownMenuItem>
