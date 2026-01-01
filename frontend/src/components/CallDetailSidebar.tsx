@@ -279,17 +279,17 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                         >
                             Transcript
                         </button>
-                        <button
+                        {/* <button
                             onClick={() => setActiveTab("progress")}
                             className={`py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'progress' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                         >
                             Call Progress
-                        </button>
+                        </button> */}
                         <button
                             onClick={() => setActiveTab("summary")}
                             className={`py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'summary' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                         >
-                            Summary
+                            AI Summary
                         </button>
                         <button
                             onClick={() => setActiveTab("notes")}
@@ -305,14 +305,9 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
                     {activeTab === "transcript" && (
                         <>
-                            {/* Floating Date Label */}
-                            <div className="sticky top-0 z-10 flex justify-center py-3 pointer-events-none">
-                                <span className="bg-slate-100/95 backdrop-blur text-slate-400 text-[10px] font-medium px-2.5 py-0.5 rounded-full border border-slate-200/50 shadow-sm">
-                                    {new Date(call.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                            </div>
 
-                            <div className="px-5 pb-6 space-y-4">
+
+                            <div className="p-6 space-y-4">
                                 <div className="p-4 bg-white border border-slate-100 rounded-xl shadow-sm">
                                     <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono leading-relaxed">
                                         {transcriptText}
@@ -362,6 +357,9 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
                     {activeTab === "summary" && (
                         <div className="p-6">
+                            <div className="mb-3">
+                                <p className="text-xs text-slate-500">AI generated summary of the call.</p>
+                            </div>
                             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-sm text-slate-600 leading-relaxed">
                                 {call.summary?.summary || "No summary available."}
                             </div>
@@ -370,6 +368,9 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
                     {activeTab === "notes" && (
                         <div className="p-6 flex flex-col gap-4 h-full">
+                            <div className="mb-0">
+                                <p className="text-xs text-slate-500">Private notes for this call.</p>
+                            </div>
                             <textarea
                                 value={notes}
                                 onChange={(e) => setNotes(e.target.value)}
