@@ -13,7 +13,7 @@ BEGIN -- extracted call_id assuming format "UUID.mp3"
 v_call_id := split_part(object_name, '.', 1);
 -- Get call details
 SELECT client_id INTO v_client_id
-FROM public.calls
+FROM public.call
 WHERE id = v_call_id;
 IF v_client_id IS NULL THEN RETURN false;
 END IF;
