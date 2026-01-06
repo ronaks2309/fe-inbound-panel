@@ -629,7 +629,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   };
 
 
-  const fetchCalls = async (includeContent = false) => {
+  const fetchCalls = async (includeContent = false, signal?: AbortSignal) => {
     if (!userInfo) return [];
 
     const metadata = userInfo.user_metadata || {};
@@ -662,7 +662,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
       headers: {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
-      }
+      },
+      signal
     });
 
     if (res.status === 401) {
@@ -712,23 +713,33 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
   // EFFECT 1: Load initial calls via HTTP depending on user info
   useEffect(() => {
+    const controller = new AbortController();
+
     async function loadCalls() {
       try {
         setLoading(true);
         setError(null);
-        const normalized = await fetchCalls(false);
-        setCalls(normalized);
+        const normalized = await fetchCalls(false, controller.signal);
+        if (!controller.signal.aborted) {
+          setCalls(normalized);
+        }
       } catch (e: any) {
-        console.error("Error fetching calls:", e);
-        setError(e.message || "Failed to load");
+        if (e.name !== 'AbortError') {
+          console.error("Error fetching calls:", e);
+          setError(e.message || "Failed to load");
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
 
     if (userInfo) {
       loadCalls();
     }
+
+    return () => controller.abort();
   }, [userInfo]);
 
   // EFFECT: Load user info
