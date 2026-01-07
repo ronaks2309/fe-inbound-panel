@@ -17,6 +17,11 @@ supabase: Client | None = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Patch storage_url to include trailing slash if missing
+        if supabase.storage_url:
+             s_url = str(supabase.storage_url)
+             if not s_url.endswith("/"):
+                 supabase.storage_url = s_url + "/"
     except Exception as e:
         print(f"Error initializing Supabase client: {e}")
 
@@ -62,6 +67,12 @@ def create_signed_url(file_path: str, bucket_name: str = "recordings", expiry: i
                 SUPABASE_ANON_KEY, 
                 options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
             )
+            # Patch storage_url to include trailing slash if missing
+            # storage_url might be an httpx.URL object, so cast to str first
+            if client.storage_url:
+                s_url = str(client.storage_url)
+                if not s_url.endswith("/"):
+                    client.storage_url = s_url + "/"
         except Exception as e:
             logging.warning(f"Failed to create scoped Supabase client: {e}. Falling back to system client.")
             # Fallback to system client (service role) IS DANGEROUS if the intent is security.

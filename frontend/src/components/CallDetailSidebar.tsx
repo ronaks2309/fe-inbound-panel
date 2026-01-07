@@ -499,23 +499,32 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
             return;
         }
 
+        const controller = new AbortController();
+
         // Otherwise, fetch signed URL from secure backend endpoint
         const fetchSecureUrl = async () => {
             try {
                 // This uses the secure call-nested endpoint: /api/calls/{id}/recording
-                const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}/recording`);
+                const res = await authenticatedFetch(`${backendUrl}/api/calls/${call.id}/recording`, {
+                    signal: controller.signal
+                });
+
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.url) {
+                    if (!controller.signal.aborted && data.url) {
                         setSrc(prev => prev === data.url ? prev : data.url);
                     }
                 }
-            } catch (e) {
-                console.error("Failed to load secure recording URL", e);
+            } catch (e: any) {
+                if (e.name !== 'AbortError') {
+                    console.error("Failed to load secure recording URL", e);
+                }
             }
         };
 
         fetchSecureUrl();
+
+        return () => controller.abort();
     }, [call.id, call.recording_url]);
 
 
