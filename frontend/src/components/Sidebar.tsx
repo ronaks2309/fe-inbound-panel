@@ -69,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
             title: "Active Calls",
             icon: Phone,
             path: "/active-calls",
-            action: () => handleComingSoon("Active Calls"),
+            action: () => navigate("/active-calls"),
         },
         {
             title: "Call Log",

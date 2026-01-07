@@ -5,6 +5,7 @@ import { Toaster } from 'sonner';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { LiveMonitorPage } from './pages/LiveMonitorPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 const App: React.FC = () => {
@@ -31,6 +32,14 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/active-calls"
+          element={
+            <ProtectedRoute>
+              <LiveMonitorPage />
             </ProtectedRoute>
           }
         />
