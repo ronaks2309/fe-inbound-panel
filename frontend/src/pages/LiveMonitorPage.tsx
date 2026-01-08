@@ -191,7 +191,7 @@ export const LiveMonitorPage: React.FC = () => {
     }, [calls.length]); // Re-run when calls count changes (fetch done or new call added)
 
     // Handlers
-    const handleWhisper = (callId: string) => {
+    const handleWhisper = (_callId: string) => {
         alert("Whisper functionality coming soon!");
     };
 

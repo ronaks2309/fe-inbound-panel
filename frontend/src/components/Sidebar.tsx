@@ -4,14 +4,14 @@ import {
     Phone,
     FileText,
     Users,
-    BarChart3,
     Settings,
     LogOut,
     AudioWaveform,
     ChevronLeft,
     ChevronRight,
     User,
-    Bell
+    Bell,
+    Bot
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
@@ -31,7 +31,6 @@ import {
     TooltipTrigger,
 } from "./ui/tooltip";
 import { useNavigate, useLocation } from "react-router-dom";
-import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 
 interface SidebarProps {
@@ -52,18 +51,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
         window.location.href = "/";
     };
 
-    const handleComingSoon = (feature: string) => {
-        toast.info(`${feature} is coming soon!`, {
-            description: "We are working hard to bring this feature to you.",
-        });
-    };
-
     const navItems = [
         {
             title: "Dashboard",
             icon: LayoutGrid,
-            path: "/dashboard-overview", // Placeholder
-            action: () => handleComingSoon("Dashboard Overview"),
+            path: "/dashboard-overview",
+            action: () => navigate("/dashboard-overview"),
         },
         {
             title: "Active Calls",
@@ -79,15 +72,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
         },
         {
             title: "Agents",
-            icon: Users,
+            icon: Bot,
             path: "/agents",
-            action: () => handleComingSoon("Agents"),
+            action: () => navigate("/agents"),
         },
         {
-            title: "Analytics",
-            icon: BarChart3,
-            path: "/analytics",
-            action: () => handleComingSoon("Analytics"),
+            title: "Users",
+            icon: Users,
+            path: "/users",
+            action: () => navigate("/users"),
         },
     ];
 
@@ -169,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
                                     "w-full justify-start gap-3 px-3 text-slate-600 hover:text-slate-900",
                                     isCollapsed && "justify-center px-0"
                                 )}
-                                onClick={() => handleComingSoon("Settings")}
+                                onClick={() => navigate("/settings")}
                             >
                                 <Settings size={20} />
                                 {!isCollapsed && <span>Settings</span>}
@@ -199,11 +192,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
                             <DropdownMenuContent align="end" className="w-56 ml-2" side={isCollapsed ? "right" : "bottom"}>
                                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => handleComingSoon("Profile")}>
+                                <DropdownMenuItem onClick={() => navigate("/profile")}>
                                     <User className="mr-2 h-4 w-4" />
                                     <span>Profile</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleComingSoon("Notifications")}>
+                                <DropdownMenuItem onClick={() => navigate("/notifications")}>
                                     <Bell className="mr-2 h-4 w-4" />
                                     <span>Notifications</span>
                                 </DropdownMenuItem>

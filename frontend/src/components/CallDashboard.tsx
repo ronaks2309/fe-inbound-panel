@@ -828,7 +828,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     }
 
     return () => controller.abort();
-  }, [userInfo]);
+  }, [userInfo?.id]);
 
   // EFFECT: Load user info
   // EFFECT: Load user info - REMOVED (passed as prop)
@@ -1001,7 +1001,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     };
 
 
-  }, [userInfo]); // Re-run when userInfo loads (so we attach user_id to WS)
+  }, [userInfo?.id]); // Re-run when userInfo loads (so we attach user_id to WS)
 
   // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
   // This runs whenever transcriptModalCallId OR selectedCallId CHANGES
