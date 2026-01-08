@@ -18,7 +18,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user }) => {
 
             {/* Main Content Area */}
             <div className="flex flex-1 flex-col overflow-hidden">
-                <main className="flex-1 overflow-y-auto p-8">
+                <main className="flex-1 overflow-hidden relative">
                     {children}
                 </main>
             </div>

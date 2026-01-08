@@ -44,6 +44,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   ChevronDown,
+  Calendar,
 } from "lucide-react";
 
 // NEW IMPORTS
@@ -145,6 +146,73 @@ const numberRangeFilter: FilterFn<Call> = (row, columnId, value) => {
 
 // COLUMN DEFINITIONS
 const columnHelper = createColumnHelper<Call>();
+
+// DURATION TIMER COMPONENT
+const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
+  const [elapsed, setElapsed] = useState<number | null>(null);
+
+  useEffect(() => {
+    // If we have a static duration (ended call), just use it
+    if (call.duration !== undefined && call.duration !== null) {
+      setElapsed(call.duration);
+      return;
+    }
+
+    // If call is active and we have started_at, calc live
+    const status = (call.status || "").toLowerCase();
+    const isActive = ["in-progress", "ringing", "queued"].includes(status);
+
+    if (isActive) {
+      // Use started_at if available, otherwise fallback to created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+
+        const interval = setInterval(() => {
+          const now = Date.now();
+          const diffSeconds = Math.floor((now - start) / 1000);
+          setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+        }, 1000);
+
+        // Initial set
+        const now = Date.now();
+        const diffSeconds = Math.floor((now - start) / 1000);
+        setElapsed(diffSeconds > 0 ? diffSeconds : 0);
+
+        return () => clearInterval(interval);
+      }
+    }
+
+    // Fallback if ended but no duration yet (e.g. just ended before report)
+    if (call.ended_at) {
+      // Use started_at or created_at
+      const startTimeStr = call.started_at || call.created_at;
+      if (startTimeStr) {
+        const start = new Date(startTimeStr).getTime();
+        const end = new Date(call.ended_at).getTime();
+        const diff = Math.floor((end - start) / 1000);
+        setElapsed(diff > 0 ? diff : 0);
+      }
+    } else {
+      setElapsed(null);
+    }
+
+  }, [call.status, call.started_at, call.created_at, call.ended_at, call.duration]);
+
+  if (elapsed === null) return <span>-</span>;
+
+  // Format HH:MM:SS
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+
+  const fmt = (n: number) => n.toString().padStart(2, "0");
+
+  if (h > 0) {
+    return <span>{fmt(h)}:{fmt(m)}:{fmt(s)}</span>;
+  }
+  return <span>{fmt(m)}:{fmt(s)}</span>;
+};
 
 const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // STATE: useState creates reactive variables that trigger re-renders when changed
@@ -953,10 +1021,9 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // RENDER FUNCTION: Returns JSX (HTML-like syntax) that React converts to DOM elements
   // React re-renders this when state changes (calls, loading, error, etc.)
   return (
-    <div className="min-h-screen flex flex-col items-center px-4 py-6">
-      <div className="w-full max-w-6xl">
-        {/* Header */}
-        {/* Header - COMMENTED OUT (Moved to Layout)
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      {/* Header - COMMENTED OUT (Moved to Layout)
         <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">
@@ -984,372 +1051,355 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
         </header>
         */}
 
-        {/* Main card */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-          {/* Filter / Stats Bar */}
-          <div className="border-b border-slate-200 bg-white px-3 py-1.5">
-            <div className="flex flex-wrap items-center gap-1">
-              <Button
-                variant={activeTab === "all" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab("all")}
-                className="h-7 px-2 text-xs gap-1.5 font-medium"
-              >
-                <List size={14} className="text-slate-500" />
-                All Calls
-                <Badge variant="secondary" className="ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700">
-                  {counts.all}
-                </Badge>
-              </Button>
-
-              <Button
-                variant={activeTab === "live" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab("live")}
-                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
-              >
-                <Activity size={14} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
-                Live
-                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
-                  {counts.live}
-                </Badge>
-              </Button>
-
-              <Button
-                variant={activeTab === "transferred" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab("transferred")}
-                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "transferred" && "bg-violet-50 text-violet-700 hover:bg-violet-100")}
-              >
-                <ArrowUpRight size={14} className={cn("text-slate-500", activeTab === "transferred" && "text-violet-600")} />
-                Transferred
-                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-violet-200 text-violet-800")}>
-                  {counts.transferred}
-                </Badge>
-              </Button>
-
-              <Button
-                variant={activeTab === "followup" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab("followup")}
-                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
-              >
-                <AlertCircle size={14} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
-                Follow Up
-                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
-                  {counts.followup}
-                </Badge>
-              </Button>
-
-              <Button
-                variant={activeTab === "callback" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab("callback")}
-                className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "callback" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
-              >
-                <RefreshCw size={14} className={cn("text-slate-500", activeTab === "callback" && "text-blue-600")} />
-                Callback
-                <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'callback' && "bg-blue-200 text-blue-800")}>
-                  {counts.callback}
-                </Badge>
-              </Button>
-
-              <div className="ml-auto flex gap-2">
-                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3" title="Refresh List" onClick={() => window.location.reload()}>
-                  <RefreshCw size={13} className="-ml-0.5" />
-                  Refresh
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3"
-                  title="Download CSV"
-                  onClick={handleDownloadCSV}
-                  disabled={exporting}
-                >
-                  {exporting ? (
-                    <RefreshCw size={13} className="-ml-0.5 animate-spin" />
-                  ) : (
-                    <Download size={13} className="-ml-0.5" />
-                  )}
-                  {exporting ? 'Exporting...' : 'Export'}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="p-0"> {/* Remove padding to let table flush */}
-            {error && (
-              <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                Error: {error}
-              </div>
+      {/* Page Header */}
+      <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Call Log</h1>
+          <p className="text-slate-500 text-xs">
+            Complete history of all customer interactions and conversations.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-2"
+            onClick={() => {/* TODO: Implement date range selector */ }}
+          >
+            <Calendar size={14} />
+            Date Range
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-2"
+            title="Refresh List"
+            onClick={() => window.location.reload()}
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-2"
+            title="Download CSV"
+            onClick={handleDownloadCSV}
+            disabled={exporting}
+          >
+            {exporting ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <Download size={14} />
             )}
-
-
-            {!loading && !error && calls.length === 0 && (
-              <p className="text-sm text-slate-500">
-                No calls yet. Use the debug endpoint{" "}
-                <code className="bg-slate-100 px-1 py-0.5 rounded">
-                  POST /api/debug/create-test-call/demo-client
-                </code>{" "}
-                or send real webhooks to populate this table.
-              </p>
-            )}
-
-
-            {/* TANSTACK TABLE RENDER */}
-            {!loading && !error && filteredCalls.length > 0 && (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      {table.getHeaderGroups().map((headerGroup) => (
-                        <tr key={headerGroup.id} className="border-b border-slate-200 bg-slate-100">
-                          {headerGroup.headers.map((header) => (
-                            <th
-                              key={header.id}
-                              className="px-3 py-1.5 text-left font-bold text-slate-700 text-[11px] uppercase tracking-wider whitespace-nowrap"
-                            >
-                              {header.isPlaceholder
-                                ? null
-                                : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
-                            </th>
-                          ))}
-                        </tr>
-                      ))}
-                    </thead>
-                    <tbody className="divide-y divide-slate-50 bg-white">
-                      {table.getRowModel().rows.map((row) => (
-                        <tr
-                          key={row.id}
-                          className="hover:bg-blue-50/50 transition-colors group cursor-pointer h-10"
-                          onClick={() => setSelectedCallId(row.original.id)}
-                        >
-                          {row.getVisibleCells().map((cell) => (
-                            <td key={cell.id} className="px-3 py-1.5 whitespace-nowrap">
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* PAGINATION CONTROLS */}
-                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 sm:px-6">
-                  {/* Info Text */}
-                  <div className="flex items-center gap-4">
-                    {/* Rows per page Selector - Moved to Left */}
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-slate-500 whitespace-nowrap">Rows</p>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className="h-8 w-[60px] justify-between text-xs font-normal"
-                          >
-                            {table.getState().pagination.pageSize}
-                            <ChevronDown className="h-3 w-3 opacity-50" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-[60px]">
-                          {[10, 20, 25, 50, 100].map((pageSize) => (
-                            <DropdownMenuItem
-                              key={pageSize}
-                              className="text-xs justify-center cursor-pointer"
-                              onSelect={() => table.setPageSize(pageSize)}
-                            >
-                              {pageSize}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-
-                    <div className="hidden sm:block">
-                      <p className="text-sm text-slate-500">
-                        Showing <span className="font-medium text-slate-900">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span> to <span className="font-medium text-slate-900">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)}</span> of <span className="font-medium text-slate-900">{table.getFilteredRowModel().rows.length}</span> results
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Pagination Widget */}
-                  <div className="flex flex-1 items-center justify-end gap-x-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-slate-500 disabled:opacity-30"
-                      onClick={() => table.previousPage()}
-                      disabled={!table.getCanPreviousPage()}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-
-                    <div className="flex items-center gap-1">
-                      {paginationRange.map((page, idx) => {
-                        if (page === '...') {
-                          return (
-                            <div key={`dots-${idx}`} className="flex h-8 w-8 items-center justify-center text-slate-400">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </div>
-                          );
-                        }
-
-                        const isCurrent = (page as number) === (table.getState().pagination.pageIndex + 1);
-                        return (
-                          <Button
-                            key={page}
-                            variant={isCurrent ? "secondary" : "ghost"}
-                            size="sm"
-                            className={cn(
-                              "h-8 w-8 p-0 font-normal transition-all",
-                              isCurrent
-                                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 font-medium"
-                                : "text-slate-600 hover:bg-blue-50 hover:text-blue-600"
-                            )}
-                            onClick={() => table.setPageIndex((page as number) - 1)}
-                          >
-                            {page}
-                          </Button>
-                        );
-                      })}
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-slate-500 disabled:opacity-30"
-                      onClick={() => table.nextPage()}
-                      disabled={!table.getCanNextPage()}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
-
-
-          </div>
+            {exporting ? 'Exporting...' : 'Export'}
+          </Button>
         </div>
       </div>
 
-      {/* Transcript Modal */}
-      {transcriptModalCallId && (
-        <TranscriptModal
-          call={calls.find((c) => c.id === transcriptModalCallId) || null}
-          onClose={() => setTranscriptModalCallId(null)}
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto p-6">
+          {/* Main card */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+
+            {/* Filter / Stats Bar */}
+            <div className="border-b border-slate-200 bg-white px-3 py-1.5">
+              <div className="flex flex-wrap items-center gap-1">
+                <Button
+                  variant={activeTab === "all" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("all")}
+                  className="h-7 px-2 text-xs gap-1.5 font-medium"
+                >
+                  <List size={14} className="text-slate-500" />
+                  All Calls
+                  <Badge variant="secondary" className="ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700">
+                    {counts.all}
+                  </Badge>
+                </Button>
+
+                <Button
+                  variant={activeTab === "live" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("live")}
+                  className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
+                >
+                  <Activity size={14} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
+                  Live
+                  <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
+                    {counts.live}
+                  </Badge>
+                </Button>
+
+                <Button
+                  variant={activeTab === "transferred" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("transferred")}
+                  className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "transferred" && "bg-violet-50 text-violet-700 hover:bg-violet-100")}
+                >
+                  <ArrowUpRight size={14} className={cn("text-slate-500", activeTab === "transferred" && "text-violet-600")} />
+                  Transferred
+                  <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'transferred' && "bg-violet-200 text-violet-800")}>
+                    {counts.transferred}
+                  </Badge>
+                </Button>
+
+                <Button
+                  variant={activeTab === "followup" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("followup")}
+                  className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "followup" && "bg-amber-50 text-amber-700 hover:bg-amber-100")}
+                >
+                  <AlertCircle size={14} className={cn("text-slate-500", activeTab === "followup" && "text-amber-600")} />
+                  Follow Up
+                  <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'followup' && "bg-amber-200 text-amber-800")}>
+                    {counts.followup}
+                  </Badge>
+                </Button>
+
+                <Button
+                  variant={activeTab === "callback" ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setActiveTab("callback")}
+                  className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "callback" && "bg-blue-50 text-blue-700 hover:bg-blue-100")}
+                >
+                  <RefreshCw size={14} className={cn("text-slate-500", activeTab === "callback" && "text-blue-600")} />
+                  Callback
+                  <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'callback' && "bg-blue-200 text-blue-800")}>
+                    {counts.callback}
+                  </Badge>
+                </Button>
+
+                <div className="ml-auto flex gap-2">
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3" title="Refresh List" onClick={() => window.location.reload()}>
+                    <RefreshCw size={13} className="-ml-0.5" />
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 px-3"
+                    title="Download CSV"
+                    onClick={handleDownloadCSV}
+                    disabled={exporting}
+                  >
+                    {exporting ? (
+                      <RefreshCw size={13} className="-ml-0.5 animate-spin" />
+                    ) : (
+                      <Download size={13} className="-ml-0.5" />
+                    )}
+                    {exporting ? 'Exporting...' : 'Export'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-0"> {/* Remove padding to let table flush */}
+              {error && (
+                <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  Error: {error}
+                </div>
+              )}
+
+
+              {!loading && !error && calls.length === 0 && (
+                <p className="text-sm text-slate-500">
+                  No calls yet. Use the debug endpoint{" "}
+                  <code className="bg-slate-100 px-1 py-0.5 rounded">
+                    POST /api/debug/create-test-call/demo-client
+                  </code>{" "}
+                  or send real webhooks to populate this table.
+                </p>
+              )}
+
+
+              {/* TANSTACK TABLE RENDER */}
+              {!loading && !error && filteredCalls.length > 0 && (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        {table.getHeaderGroups().map((headerGroup) => (
+                          <tr key={headerGroup.id} className="border-b border-slate-200 bg-slate-100">
+                            {headerGroup.headers.map((header) => (
+                              <th
+                                key={header.id}
+                                className="px-3 py-1.5 text-left font-bold text-slate-700 text-[11px] uppercase tracking-wider whitespace-nowrap"
+                              >
+                                {header.isPlaceholder
+                                  ? null
+                                  : flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext()
+                                  )}
+                              </th>
+                            ))}
+                          </tr>
+                        ))}
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 bg-white">
+                        {table.getRowModel().rows.map((row) => (
+                          <tr
+                            key={row.id}
+                            className="hover:bg-blue-50/50 transition-colors group cursor-pointer h-10"
+                            onClick={() => setSelectedCallId(row.original.id)}
+                          >
+                            {row.getVisibleCells().map((cell) => (
+                              <td key={cell.id} className="px-3 py-1.5 whitespace-nowrap">
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* PAGINATION CONTROLS */}
+                  <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 sm:px-6">
+                    {/* Info Text */}
+                    <div className="flex items-center gap-4">
+                      {/* Rows per page Selector - Moved to Left */}
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-slate-500 whitespace-nowrap">Rows</p>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="h-8 w-[60px] justify-between text-xs font-normal"
+                            >
+                              {table.getState().pagination.pageSize}
+                              <ChevronDown className="h-3 w-3 opacity-50" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-[60px]">
+                            {[10, 20, 25, 50, 100].map((pageSize) => (
+                              <DropdownMenuItem
+                                key={pageSize}
+                                className="text-xs justify-center cursor-pointer"
+                                onSelect={() => table.setPageSize(pageSize)}
+                              >
+                                {pageSize}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
+                      <div className="hidden sm:block">
+                        <p className="text-sm text-slate-500">
+                          Showing <span className="font-medium text-slate-900">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span> to <span className="font-medium text-slate-900">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)}</span> of <span className="font-medium text-slate-900">{table.getFilteredRowModel().rows.length}</span> results
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Pagination Widget */}
+                    <div className="flex flex-1 items-center justify-end gap-x-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 disabled:opacity-30"
+                        onClick={() => table.previousPage()}
+                        disabled={!table.getCanPreviousPage()}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+
+                      <div className="flex items-center gap-1">
+                        {paginationRange.map((page, idx) => {
+                          if (page === '...') {
+                            return (
+                              <div key={`dots-${idx}`} className="flex h-8 w-8 items-center justify-center text-slate-400">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </div>
+                            );
+                          }
+
+                          const isCurrent = (page as number) === (table.getState().pagination.pageIndex + 1);
+                          return (
+                            <Button
+                              key={page}
+                              variant={isCurrent ? "secondary" : "ghost"}
+                              size="sm"
+                              className={cn(
+                                "h-8 w-8 p-0 font-normal transition-all",
+                                isCurrent
+                                  ? "bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 font-medium"
+                                  : "text-slate-600 hover:bg-blue-50 hover:text-blue-600"
+                              )}
+                              onClick={() => table.setPageIndex((page as number) - 1)}
+                            >
+                              {page}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 disabled:opacity-30"
+                        onClick={() => table.nextPage()}
+                        disabled={!table.getCanNextPage()}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+
+            </div>
+          </div>
+        </div>
+
+        {/* Transcript Modal */}
+        {
+          transcriptModalCallId && (
+            <TranscriptModal
+              call={calls.find((c) => c.id === transcriptModalCallId) || null}
+              onClose={() => setTranscriptModalCallId(null)}
+              onCallUpdated={(updatedCall) => {
+                setCalls(prev => prev.map(c => c.id === updatedCall.id ? updatedCall : c));
+              }}
+            />
+          )
+        }
+
+        {/* Listen Modal */}
+        {
+          listenModalCallId && (
+            <ListenModal
+              call={calls.find((c) => c.id === listenModalCallId) || null}
+              onClose={() => setListenModalCallId(null)}
+            />
+          )
+        }
+
+        {/* Recording Modal */}
+        {
+          recordingModalCallId && (
+            <RecordingModal
+              call={calls.find((c) => c.id === recordingModalCallId) || null}
+              onClose={() => setRecordingModalCallId(null)}
+            />
+          )
+        }
+
+        {/* Call Detail Sidebar */}
+        <CallDetailSidebar
+          call={calls.find(c => c.id === selectedCallId) || null}
+          onClose={() => setSelectedCallId(null)}
           onCallUpdated={(updatedCall) => {
             setCalls(prev => prev.map(c => c.id === updatedCall.id ? updatedCall : c));
           }}
         />
-      )}
-
-      {/* Listen Modal */}
-      {listenModalCallId && (
-        <ListenModal
-          call={calls.find((c) => c.id === listenModalCallId) || null}
-          onClose={() => setListenModalCallId(null)}
-        />
-      )}
-
-      {/* Recording Modal */}
-      {recordingModalCallId && (
-        <RecordingModal
-          call={calls.find((c) => c.id === recordingModalCallId) || null}
-          onClose={() => setRecordingModalCallId(null)}
-        />
-      )}
-
-      {/* Call Detail Sidebar */}
-      <CallDetailSidebar
-        call={calls.find(c => c.id === selectedCallId) || null}
-        onClose={() => setSelectedCallId(null)}
-        onCallUpdated={(updatedCall) => {
-          setCalls(prev => prev.map(c => c.id === updatedCall.id ? updatedCall : c));
-        }}
-      />
-
-
+      </div>
     </div>
   );
-
-};
-
-
-
-
-
-
-const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
-  const [elapsed, setElapsed] = useState<number | null>(null);
-
-  useEffect(() => {
-    // If we have a static duration (ended call), just use it
-    if (call.duration !== undefined && call.duration !== null) {
-      setElapsed(call.duration);
-      return;
-    }
-
-    // If call is active and we have started_at, calc live
-    const status = (call.status || "").toLowerCase();
-    const isActive = ["in-progress", "ringing", "queued"].includes(status);
-
-    if (isActive) {
-      // Use started_at if available, otherwise fallback to created_at
-      const startTimeStr = call.started_at || call.created_at;
-      if (startTimeStr) {
-        const start = new Date(startTimeStr).getTime();
-
-        const interval = setInterval(() => {
-          const now = Date.now();
-          const diffSeconds = Math.floor((now - start) / 1000);
-          setElapsed(diffSeconds > 0 ? diffSeconds : 0);
-        }, 1000);
-
-        // Initial set
-        const now = Date.now();
-        const diffSeconds = Math.floor((now - start) / 1000);
-        setElapsed(diffSeconds > 0 ? diffSeconds : 0);
-
-        return () => clearInterval(interval);
-      }
-    }
-
-    // Fallback if ended but no duration yet (e.g. just ended before report)
-    if (call.ended_at) {
-      // Use started_at or created_at
-      const startTimeStr = call.started_at || call.created_at;
-      if (startTimeStr) {
-        const start = new Date(startTimeStr).getTime();
-        const end = new Date(call.ended_at).getTime();
-        const diff = Math.floor((end - start) / 1000);
-        setElapsed(diff > 0 ? diff : 0);
-      }
-    } else {
-      setElapsed(null);
-    }
-
-  }, [call.status, call.started_at, call.created_at, call.ended_at, call.duration]);
-
-  if (elapsed === null) return <span>-</span>;
-
-  // Format HH:MM:SS
-  const h = Math.floor(elapsed / 3600);
-  const m = Math.floor((elapsed % 3600) / 60);
-  const s = elapsed % 60;
-
-  const fmt = (n: number) => n.toString().padStart(2, "0");
-
-  if (h > 0) {
-    return <span>{fmt(h)}:{fmt(m)}:{fmt(s)}</span>;
-  }
-  return <span>{fmt(m)}:{fmt(s)}</span>;
 };
 
 export default CallDashboard;

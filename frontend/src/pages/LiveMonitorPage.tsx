@@ -1,192 +1,300 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Filter } from "lucide-react";
-import { Button } from "../components/ui/button";
+import React, { useEffect, useState, useRef } from "react";
 import { LiveCallTile } from "../components/LiveCallTile";
+import { AlertCircle, Phone, Loader2, Filter, UserPlus } from "lucide-react";
+import { supabase } from "../lib/supabase";
 import type { Call } from "../components/CallDashboard";
 import { Layout } from "../components/Layout";
-import { supabase } from "../lib/supabase";
+import { Button } from "../components/ui/button";
 
-// MOCK DATA GENERATOR
-const generateMockCalls = (): (Call & { messages?: any[] })[] => [
-    {
-        id: "call_1",
-        phone_number: "+1 (555) 012-3456",
-        username: "Sarah Jenkins",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 263).toISOString(), // 4:23 ago
-        duration: 263,
-        sentiment: "Very Satisfied",
-        final_transcript: "Yes, exactly. I didn't authorize this subscription renewal.",
-        has_listen_url: true,
-        user_id: "user_1",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null,
-        messages: [
-            { role: 'ai', content: "Hi Sarah, thanks for calling. How can I help you today?" },
-            { role: 'user', content: "I have a question about my bill." },
-            { role: 'ai', content: "Sure, I can help with that. What specifically would you like to know?" },
-            { role: 'user', content: "There's a charge of $49.99 I don't recognize." },
-            { role: 'ai', content: "Let me check that for you. One moment please." },
-            { role: 'ai', content: "It looks like a renewal for the Premium plan." },
-            { role: 'user', content: "But I cancelled that last month!" },
-            { role: 'ai', content: "I see the cancellation request here. It seems it didn't process correctly." },
-            { role: 'ai', content: "I can reverse that charge for you immediately." },
-            { role: 'user', content: "Oh great, thank you so much." },
-            { role: 'ai', content: "You're welcome. Is there anything else?" },
-            { role: 'user', content: "No that's it." },
-            { role: 'ai', content: "Have a wonderful day then!" }
-        ]
-    },
-    {
-        id: "call_2",
-        phone_number: "+1 (555) 098-7654",
-        username: "Mark Doe",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 72).toISOString(), // 1:12 ago
-        duration: 72,
-        sentiment: "Neutral",
-        final_transcript: "Yeah, I just want to know when my package is arriving. It's been 3 days late.",
-        has_listen_url: true,
-        user_id: "user_2",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null
-    },
-    {
-        id: "call_3",
-        phone_number: "+1 (555) 456-7890",
-        username: "Emily Chen",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 525).toISOString(), // 8:45 ago
-        duration: 525,
-        sentiment: "Unsatisfied",
-        final_transcript: "This is unacceptable! I've been down for 4 hours. I need a manager now!",
-        has_listen_url: true,
-        user_id: "user_3",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null
-    },
-    {
-        id: "call_4",
-        phone_number: "+1 (555) 234-5678",
-        username: "Michael Ross",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 750).toISOString(), // 12:30 ago
-        duration: 750,
-        sentiment: "Very Satisfied",
-        final_transcript: "No, that was very helpful. You've been great.",
-        has_listen_url: true,
-        user_id: "user_4",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null
-    },
-    {
-        id: "call_5",
-        phone_number: "+1 (555) 111-2222",
-        username: "John Smith",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 15).toISOString(), // 15s ago
-        duration: 15,
-        sentiment: "Insufficient", // Default/Insufficient case
-        final_transcript: "Hello? Is anyone there?",
-        has_listen_url: true,
-        user_id: "user_5",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null
-    },
-    {
-        id: "call_6",
-        phone_number: "+1 (555) 333-4444",
-        username: "Angry Alice",
-        status: "in-progress",
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 1000 * 120).toISOString(), // 2 mins ago
-        duration: 120,
-        sentiment: "Very Unsatisfied", // Unsatisfied placeholder
-        final_transcript: "I am extremely frustrated with this service. Cancel it immediately.",
-        has_listen_url: true,
-        user_id: "user_6",
-        hasRecording: false,
-        detailsLoaded: true,
-        ended_at: null,
-        messages: [
-            { role: 'ai', content: "Hello calling from Acme Corp." },
-            { role: 'user', content: "Finally! I've been on hold for ages." },
-            { role: 'ai', content: "I apologize for the wait. How can I assist you?" },
-            { role: 'user', content: "Your service is terrible. Nothing works." },
-            { role: 'ai', content: "I'm sorry to hear that. Can you explain what is failing?" },
-            { role: 'user', content: "Everything! The login is broken, the app crashes." },
-            { role: 'user', content: "I want a refund right now." },
-            { role: 'ai', content: "I understand your frustration. Let me look up your account." },
-            { role: 'user', content: "I am extremely frustrated with this service. Cancel it immediately." }
-        ]
-    }
-];
+const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
+// Helper to normalize backend/WS data to Call type
+const normalizeCall = (c: any): Call => {
+    return {
+        id: String(c.id),
+        client_id: c.client_id || c.clientId,
+        phone_number: c.phone_number ?? c.phoneNumber ?? null,
+        status: c.status ?? null,
+        started_at: c.started_at ?? c.startedAt ?? null,
+        created_at: c.created_at ?? c.createdAt ?? new Date().toISOString(),
+        ended_at: c.ended_at ?? c.endedAt ?? null,
+        has_listen_url: c.has_listen_url ?? c.hasListenUrl ?? Boolean(c.listenUrl) ?? false,
+        user_id: c.user_id ?? c.userId ?? null,
+        username: c.username ?? null,
+        duration: c.duration ?? null,
+
+        hasTranscript: c.hasTranscript ?? c.has_transcript ?? false,
+        hasLiveTranscript: c.hasLiveTranscript ?? c.has_live_transcript ?? !!c.live_transcript,
+        hasFinalTranscript: c.hasFinalTranscript ?? c.has_final_transcript ?? !!c.final_transcript,
+        hasRecording: c.hasRecording ?? c.has_recording ?? !!c.recording_url,
+
+        recording_url: c.recording_url ?? c.recordingUrl ?? null,
+        live_transcript: c.live_transcript ?? c.liveTranscript ?? null,
+        final_transcript: c.final_transcript ?? c.finalTranscript ?? null,
+        summary: c.summary ?? null,
+
+        detailsLoaded: c.detailsLoaded ?? false,
+        sentiment: c.sentiment ?? null,
+        disposition: c.disposition ?? null,
+        notes: c.notes ?? null,
+        feedback_rating: c.feedback_rating ?? null,
+        feedback_text: c.feedback_text ?? null,
+        signed_recording_url: c.signed_recording_url ?? null,
+    };
+};
 
 export const LiveMonitorPage: React.FC = () => {
-    // using constant for mock data to ensure HMR updates reflect immediately
-    const calls = generateMockCalls();
+    const [calls, setCalls] = useState<Call[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [userInfo, setUserInfo] = useState<any>(null);
+    const wsRef = useRef<WebSocket | null>(null);
+    const retryTimeoutRef = useRef<number | null>(null);
 
+    // Fetch User Info (for Layout)
     useEffect(() => {
         supabase.auth.getUser().then(({ data: { user } }) => {
-            if (user) {
-                setUserInfo(user);
-            }
+            if (user) setUserInfo(user);
         });
     }, []);
 
+    // Fetch initial active calls
+    const fetchActiveCalls = async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+
+            const metadata = session.user.user_metadata || {};
+            const tenantId = metadata.tenant_id || "demo-client";
+
+            let url = `${backendUrl}/api/${tenantId}/calls`;
+            if (metadata.role === 'user') {
+                url += `?user_id=${session.user.id}`;
+            }
+
+            const res = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`
+                }
+            });
+
+            if (!res.ok) throw new Error("Failed to fetch calls");
+            const rawCalls = await res.json();
+            const allCalls: Call[] = rawCalls.map(normalizeCall);
+
+            // Filter inactive
+            const active = allCalls.filter(c =>
+                ['in-progress', 'ringing', 'queued'].includes(c.status?.toLowerCase() || '')
+            );
+            setCalls(active);
+        } catch (err) {
+            console.error(err);
+            setError("Could not load active calls");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchActiveCalls();
+
+        // WebSocket Setup
+        const connectWs = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+
+            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/dashboard?token=${session.access_token}`;
+            const ws = new WebSocket(wsUrl);
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+                console.log("Live Monitor WS Connected");
+                // Note: We can't access 'calls' state here reliably due to closure if not in dependency
+                // But we rely on the separate effect below for initial subscriptions.
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+
+                    if (msg.type === 'call-upsert') {
+                        const rawCall = msg.data || msg.call;
+                        if (!rawCall) return;
+
+                        const updatedCall = normalizeCall(rawCall);
+                        const isActive = ['in-progress', 'in_progress', 'ringing', 'queued'].includes(updatedCall.status?.toLowerCase() || '');
+
+                        setCalls(prev => {
+                            const existsIndex = prev.findIndex(c => c.id === updatedCall.id);
+
+                            if (isActive) {
+                                if (existsIndex === -1) {
+                                    // NEW active call -> Subscribe!
+                                    if (ws.readyState === WebSocket.OPEN) {
+                                        console.log("Subscribing to new call:", updatedCall.id);
+                                        ws.send(JSON.stringify({ type: 'subscribe', callId: updatedCall.id }));
+                                    }
+                                    return [updatedCall, ...prev];
+                                } else {
+                                    // Update existing
+                                    const newCalls = [...prev];
+                                    newCalls[existsIndex] = { ...prev[existsIndex], ...updatedCall };
+                                    return newCalls;
+                                }
+                            } else {
+                                // Not active anymore -> Remove
+                                return prev.filter(c => c.id !== updatedCall.id);
+                            }
+                        });
+                    } else if (msg.type === 'transcript-update') {
+                        setCalls(prev => prev.map(c => {
+                            if (c.id === msg.callId) {
+                                return {
+                                    ...c,
+                                    live_transcript: msg.fullTranscript,
+                                    status: msg.status || c.status
+                                };
+                            }
+                            return c;
+                        }));
+                    }
+
+                } catch (e) {
+                    console.error("WS Message Parse Error", e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log("WS Closed, retrying...");
+                retryTimeoutRef.current = setTimeout(connectWs, 3000); // number is correct for browser
+            };
+        };
+
+        connectWs();
+
+        return () => {
+            wsRef.current?.close();
+            if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+        };
+    }, []); // Run once on mount
+
+    // Separate effect to subscribe to initial calls once WS is open
+    useEffect(() => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN && calls.length > 0) {
+            calls.forEach(c => {
+                // Deduplicate subscriptions involves backend tracking or ensuring calls list stable
+                // Just send it, backend handles multiple subscribes gracefully usually
+                ws.send(JSON.stringify({ type: 'subscribe', callId: c.id }));
+            });
+        }
+    }, [calls.length]); // Re-run when calls count changes (fetch done or new call added)
+
+    // Handlers
+    const handleWhisper = (callId: string) => {
+        alert("Whisper functionality coming soon!");
+    };
+
+    const handleTakeOver = async (callId: string) => {
+        if (!confirm("Are you sure you want to take over this call? It will be transferred to your number.")) return;
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+
+            const res = await fetch(`${backendUrl}/api/${session.user.id}/calls/${callId}/force-transfer`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({ agent_phone_number: "+15550000000" }) // TODO: Get real agent number
+            });
+
+            if (res.ok) {
+                console.log("Transfer initiated");
+            } else {
+                alert("Failed to take over call");
+            }
+
+        } catch (e) {
+            console.error("Take over error", e);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <Layout user={userInfo}>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <Loader2 className="animate-spin text-slate-400" size={32} />
+                </div>
+            </Layout>
+        );
+    }
+
+    if (error) {
+        return (
+            <Layout user={userInfo}>
+                <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl my-8 mx-auto max-w-lg border border-red-100">
+                    <AlertCircle className="mx-auto mb-2" />
+                    {error}
+                </div>
+            </Layout>
+        );
+    }
+
     return (
         <Layout user={userInfo}>
-            <div className="flex flex-col h-full bg-slate-50/50">
-                {/* Page Header - Aligned with Dashboard style */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex flex-col h-full">
+                {/* Page Header */}
+                <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
                     <div>
-                        <div className="flex items-center gap-3 mb-1">
-                            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Active Sessions</h2>
-                            {/* Live Stats Badge next to title */}
-                            <div className="flex items-center gap-2 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
-                                <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                                </span>
-                                <span className="text-xs font-semibold text-emerald-700">5 Live</span>
-                            </div>
-                        </div>
-                        <p className="text-slate-500">Real-time monitoring of AI agent interactions</p>
+                        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Active Monitoring</h1>
+                        <p className="text-slate-500 text-xs">
+                            Real-time oversight of ongoing conversations.
+                        </p>
                     </div>
-
-                    <div className="flex items-center gap-3">
-                        <Button variant="outline" className="bg-white border-slate-200 shadow-sm text-slate-700 hover:bg-slate-50">
-                            <Filter size={16} className="mr-2" />
-                            Filter
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 gap-2"
+                            onClick={() => {/* TODO: Implement filters */ }}
+                        >
+                            <Filter size={14} />
+                            Filters
                         </Button>
-                        <Button className="bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10">
-                            <Plus size={16} className="mr-2" />
+                        <Button
+                            size="sm"
+                            className="h-9 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => {/* TODO: Implement inject agent */ }}
+                        >
+                            <UserPlus size={14} />
                             Inject Agent
                         </Button>
                     </div>
                 </div>
 
-                {/* Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6 pb-20">
-                    {calls.map(call => (
-                        <LiveCallTile
-                            key={call.id}
-                            call={call}
-                            onWhisper={(id) => console.log("Whisper", id)}
-                            onTakeOver={(id) => console.log("Take over", id)}
-                        />
-                    ))}
+                {/* Main Content */}
+                <div className="flex-1 overflow-auto p-6 space-y-6">
+                    {calls.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center">
+                            <Phone className="w-16 h-16 text-slate-300 mb-4" />
+                            <h2 className="text-xl font-semibold text-slate-700">No Active Calls</h2>
+                            <p className="text-slate-500 mt-2 max-w-md">
+                                There are currently no calls in progress. Incoming calls will appear here automatically.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6 pb-6">
+                            {calls.map(call => (
+                                <LiveCallTile
+                                    key={call.id}
+                                    call={call}
+                                    onWhisper={handleWhisper}
+                                    onTakeOver={handleTakeOver}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </Layout>
