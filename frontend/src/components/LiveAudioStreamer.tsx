@@ -48,21 +48,37 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
     // Duration Timer
     useEffect(() => {
         const updateTimer = () => {
-            if (!call.started_at) return;
-            const start = new Date(call.started_at).getTime();
-            const now = Date.now();
-            const diff = Math.max(0, Math.floor((now - start) / 1000));
+            // Fallback to created_at if started_at is missing (prevents 00:00 glitch)
+            const startTimeStr = call.started_at || call.created_at;
 
-            const mins = Math.floor(diff / 60).toString().padStart(2, '0');
-            const secs = (diff % 60).toString().padStart(2, '0');
-            setDuration(`${mins}:${secs}`);
+            if (!startTimeStr) {
+                setDuration("00:00");
+                return;
+            }
+
+            try {
+                const start = new Date(startTimeStr).getTime();
+                if (isNaN(start)) {
+                    setDuration("00:00");
+                    return;
+                }
+
+                const now = Date.now();
+                const diff = Math.max(0, Math.floor((now - start) / 1000));
+
+                const mins = Math.floor(diff / 60).toString().padStart(2, '0');
+                const secs = (diff % 60).toString().padStart(2, '0');
+                setDuration(`${mins}:${secs}`);
+            } catch (e) {
+                setDuration("00:00");
+            }
         };
 
         const timerId = setInterval(updateTimer, 1000);
         updateTimer();
 
         return () => clearInterval(timerId);
-    }, [call.started_at]);
+    }, [call.started_at, call.created_at]);
 
     // Handle Volume
     useEffect(() => {

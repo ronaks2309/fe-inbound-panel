@@ -75,6 +75,7 @@ class CallDetailResponse(CallListResponse):
 async def listCalls(
     client_id: str, 
     include_content: bool = False,
+    status: Optional[str] = None, # NEW: filter by comma-separated status
     user_id: Optional[str] = None, 
     session: Session = Depends(get_secure_session),
     current_user: UserContext = Depends(get_current_user)
@@ -83,6 +84,7 @@ async def listCalls(
     List calls for a specific client.
     Returns lightweight call summaries without heavy transcript/summary fields.
     Use include_content=True to get full transcript/summary data (slower).
+    Use status=in-progress,ringing to filter by specific statuses.
     """
     # 1. Strict Tenant/Client Check
     if current_user.client_id != client_id:
@@ -92,6 +94,15 @@ async def listCalls(
         select(Call)
         .where(Call.client_id == current_user.client_id)
     )
+    
+    if user_id:
+        stmt = stmt.where(Call.user_id == user_id)
+
+    if status:
+        # Support comma-separated list: ?status=in-progress,ringing
+        status_list = [s.strip() for s in status.split(',')]
+        if status_list:
+             stmt = stmt.where(Call.status.in_(status_list))
     
     # Authorization Logic is now handled by RLS via get_secure_session
     # We just need to query the table, and Postgres filters it for us.
