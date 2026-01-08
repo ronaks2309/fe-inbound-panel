@@ -109,7 +109,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     const isActive = ["in-progress", "ringing", "queued"].includes(status);
 
     // Transcript content
-    const transcriptText = call.live_transcript || call.final_transcript || "No transcript available yet.";
+    // Transcript content handled in render
 
     // Progress Stages (Horizontal) - moved to Tab
     const stages = ["Identity", "Discovery", "Solution", "Close"];
@@ -288,17 +288,61 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 flex flex-col relative scroll-smooth">
 
                     {activeTab === "transcript" && (
-                        <>
+                        <div className="flex flex-col w-full min-h-0 bg-white">
+                            {(() => {
+                                const raw = call.live_transcript || call.final_transcript;
+                                let messages: any[] = [];
 
+                                if (!raw) {
+                                    messages = [{ role: 'system', content: "No transcript available." }];
+                                } else {
+                                    try {
+                                        const parsed = JSON.parse(raw);
+                                        messages = Array.isArray(parsed) ? parsed : [{ role: 'system', content: raw }];
+                                    } catch (e) {
+                                        messages = [{ role: 'system', content: raw }];
+                                    }
+                                }
 
-                            <div className="p-6 space-y-4">
-                                <div className="p-4 bg-white border border-slate-100 rounded-xl shadow-sm">
-                                    <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono leading-relaxed">
-                                        {transcriptText}
-                                    </pre>
-                                </div>
-                            </div>
-                        </>
+                                return messages.map((msg, idx) => {
+                                    const isUser = msg.role === 'user';
+                                    const isSystem = msg.role === 'system';
+
+                                    if (isSystem) {
+                                        return (
+                                            <div key={idx} className="w-full px-6 py-2 bg-slate-50/50 border-b border-slate-50 text-center">
+                                                <p className="text-[10px] italic text-slate-400">
+                                                    {msg.content}
+                                                </p>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className={cn(
+                                                "w-full px-6 py-2 border-b border-slate-50/50 flex flex-col group transition-colors hover:bg-slate-50/30",
+                                                isUser ? "bg-blue-50/30 items-end text-right" : "bg-white items-start text-left"
+                                            )}
+                                        >
+                                            <span className={cn(
+                                                "text-[9px] font-bold uppercase tracking-wider leading-none mb-1 opacity-70",
+                                                isUser ? "text-blue-400" : "text-slate-400"
+                                            )}>
+                                                {isUser ? 'User' : 'AI'}
+                                            </span>
+                                            <p className={cn(
+                                                "text-xs leading-relaxed max-w-[95%]",
+                                                isUser ? "text-blue-900" : "text-slate-700"
+                                            )}>
+                                                {msg.content}
+                                            </p>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
                     )}
 
                     {activeTab === "progress" && (

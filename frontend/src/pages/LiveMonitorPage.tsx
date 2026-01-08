@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { LiveCallTile } from "../components/LiveCallTile";
-import { AlertCircle, Phone, Loader2, Filter, UserPlus } from "lucide-react";
+import { AlertCircle, Phone, Loader2, Filter } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { Call } from "../components/CallDashboard";
 import { Layout } from "../components/Layout";
@@ -220,27 +220,6 @@ export const LiveMonitorPage: React.FC = () => {
         }
     };
 
-    if (isLoading) {
-        return (
-            <Layout user={userInfo}>
-                <div className="flex items-center justify-center min-h-[60vh]">
-                    <Loader2 className="animate-spin text-slate-400" size={32} />
-                </div>
-            </Layout>
-        );
-    }
-
-    if (error) {
-        return (
-            <Layout user={userInfo}>
-                <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl my-8 mx-auto max-w-lg border border-red-100">
-                    <AlertCircle className="mx-auto mb-2" />
-                    {error}
-                </div>
-            </Layout>
-        );
-    }
-
     return (
         <Layout user={userInfo}>
             <div className="flex flex-col h-full">
@@ -262,20 +241,21 @@ export const LiveMonitorPage: React.FC = () => {
                             <Filter size={14} />
                             Filters
                         </Button>
-                        <Button
-                            size="sm"
-                            className="h-9 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-                            onClick={() => {/* TODO: Implement inject agent */ }}
-                        >
-                            <UserPlus size={14} />
-                            Inject Agent
-                        </Button>
                     </div>
                 </div>
 
                 {/* Main Content */}
                 <div className="flex-1 overflow-auto p-6 space-y-6">
-                    {calls.length === 0 ? (
+                    {isLoading ? (
+                        <div className="flex items-center justify-center min-h-[60vh]">
+                            <Loader2 className="animate-spin text-slate-400" size={32} />
+                        </div>
+                    ) : error ? (
+                        <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl my-8 mx-auto max-w-lg border border-red-100">
+                            <AlertCircle className="mx-auto mb-2" />
+                            {error}
+                        </div>
+                    ) : calls.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 text-center">
                             <Phone className="w-16 h-16 text-slate-300 mb-4" />
                             <h2 className="text-xl font-semibold text-slate-700">No Active Calls</h2>
