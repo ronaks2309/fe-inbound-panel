@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     Mic,
     PhoneIncoming,
@@ -23,6 +23,17 @@ export const LiveCallTile: React.FC<LiveCallTileProps> = ({ call, onWhisper, onT
     const [activeTab, setActiveTab] = useState<"transcript" | "summary" | "notes">("transcript");
     const [copiedId, setCopiedId] = useState(false);
 
+    // Auto-scroll refs
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll effect
+    useEffect(() => {
+        if (activeTab === "transcript" && transcriptEndRef.current) {
+            transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [call.live_transcript, call.final_transcript, activeTab]);
+
     // Formatting Helpers
     const formatCallTime = (dateStr: string) => {
         try {
@@ -46,10 +57,6 @@ export const LiveCallTile: React.FC<LiveCallTileProps> = ({ call, onWhisper, onT
 
 
 
-    // Parse Transcript (Attempt to be smart about it, otherwise just text)
-    // If it's just a string, we show it as one block or try to split by newlines if they represent turns?
-    // For now, assuming raw text.
-    const transcriptContent = call.live_transcript || call.final_transcript || "Listening...";
 
     // Determine user display: Username if available, else something based on ID or "Unknown"
     // Requirement says: "Bind Username in a subtitle row."
@@ -153,10 +160,66 @@ export const LiveCallTile: React.FC<LiveCallTileProps> = ({ call, onWhisper, onT
                 {/* Tab Content */}
                 <div className="flex-1 p-0 bg-white relative">
                     {activeTab === "transcript" && (
-                        <div className="p-4 h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-slate-50/30">
-                            <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700 font-mono">
-                                {transcriptContent}
-                            </p>
+                        <div
+                            ref={scrollContainerRef}
+                            className="h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-white"
+                        >
+                            <div className="flex flex-col w-full">
+                                {(() => {
+                                    const raw = call.live_transcript || call.final_transcript;
+                                    let messages: any[] = [];
+
+                                    if (!raw) {
+                                        messages = [{ role: 'system', content: "Listening..." }];
+                                    } else {
+                                        try {
+                                            const parsed = JSON.parse(raw);
+                                            messages = Array.isArray(parsed) ? parsed : [{ role: 'system', content: raw }];
+                                        } catch (e) {
+                                            messages = [{ role: 'system', content: raw }];
+                                        }
+                                    }
+
+                                    return messages.map((msg, idx) => {
+                                        const isUser = msg.role === 'user';
+                                        const isSystem = msg.role === 'system';
+
+                                        if (isSystem) {
+                                            return (
+                                                <div key={idx} className="w-full px-3 py-1.5 bg-slate-50/50 border-b border-slate-50 text-center">
+                                                    <p className="text-[10px] italic text-slate-400">
+                                                        {msg.content}
+                                                    </p>
+                                                </div>
+                                            );
+                                        }
+
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className={cn(
+                                                    "w-full px-3 py-1 border-b border-slate-50/50 flex flex-col",
+                                                    isUser ? "bg-blue-50/30 items-end text-right" : "bg-white items-start text-left"
+                                                )}
+                                            >
+                                                <span className={cn(
+                                                    "text-[9px] font-bold uppercase tracking-wider leading-none mb-0.5 opacity-70",
+                                                    isUser ? "text-blue-400" : "text-slate-400"
+                                                )}>
+                                                    {isUser ? 'User' : 'AI'}
+                                                </span>
+                                                <p className={cn(
+                                                    "text-xs leading-snug max-w-[95%]",
+                                                    isUser ? "text-blue-900" : "text-slate-700"
+                                                )}>
+                                                    {msg.content}
+                                                </p>
+                                            </div>
+                                        );
+                                    });
+                                })()}
+                                <div ref={transcriptEndRef} />
+                            </div>
                         </div>
                     )}
 

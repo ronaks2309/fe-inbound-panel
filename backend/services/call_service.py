@@ -1,4 +1,5 @@
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 import os
@@ -207,6 +208,7 @@ class CallService:
         """
         Handles 'transcript' messages (live transcript).
         Updates `call.live_transcript` and broadcasts real-time updates.
+        Stores transcript as a JSON list of messages.
         """
     
         call_data = message.get("call", {})
@@ -215,14 +217,14 @@ class CallService:
             print("[CallMark AI][transcript] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
-        raw_text = (message.get("transcript"))
-
-        role = (message.get("role") or "").lower()
-        prefix = ""
+        raw_text = (message.get("transcript")) or ""
+        role = (message.get("role") or "unknown").lower()
+        
+        # Normalize role
         if role == "assistant":
-            prefix = "AI: "
+            role = "ai"
         elif role == "user":
-            prefix = "User: "
+            role = "user"
 
         # Get or create call (no field updates)
         call, created = CallService.get_or_create_call(
@@ -231,34 +233,38 @@ class CallService:
             call_id
         )
 
-        # Append logic
-        transcript_text = None
+        # Parse existing transcript
+        transcript_messages = []
+        if call.live_transcript:
+            try:
+                transcript_messages = json.loads(call.live_transcript)
+                if not isinstance(transcript_messages, list):
+                    # Fallback if it's somehow not a list (e.g. old plain text)
+                    transcript_messages = [{"role": "system", "content": str(call.live_transcript)}]
+            except json.JSONDecodeError:
+                # Fallback for plain text legacy data
+                transcript_messages = [{"role": "system", "content": call.live_transcript}]
+
+        # Append Logic
+        append_chunk = raw_text
         if raw_text:
-            if call.live_transcript:
-                lines = call.live_transcript.splitlines()
-                last_line = lines[-1] if lines else ""
-                last_role = None
-                if last_line.startswith("AI: "):
-                    last_role = "assistant"
-                elif last_line.startswith("User: "):
-                    last_role = "user"
-
+            if transcript_messages:
+                last_msg = transcript_messages[-1]
+                last_role = last_msg.get("role")
+                
                 if last_role == role:
-                    # Append to same line
-                    append_chunk = raw_text
-                    call.live_transcript = call.live_transcript + append_chunk
-                    transcript_text = append_chunk
+                    # Append to same message
+                    last_msg["content"] = last_msg["content"] + append_chunk
                 else:
-                    # New line with prefix
-                    append_chunk = (prefix + raw_text).strip()
-                    call.live_transcript = call.live_transcript + "\n" + append_chunk
-                    transcript_text = append_chunk
+                    # New message
+                    transcript_messages.append({"role": role, "content": append_chunk})
             else:
-                # First line
-                append_chunk = (prefix + raw_text).strip()
-                call.live_transcript = append_chunk
-                transcript_text = append_chunk
+                # First message
+                transcript_messages.append({"role": role, "content": append_chunk})
 
+        # Serialize back to string
+        call.live_transcript = json.dumps(transcript_messages)
+        
         #call.updated_at = datetime.utcnow()
         
         if user_id:
@@ -281,12 +287,16 @@ class CallService:
             "type": "transcript-update",
             "clientId": client_id,
             "callId": call.id,
-            "append": transcript_text,
-            "fullTranscript": call.live_transcript,
+            "append": append_chunk, # This might be less useful now if FE expects full array, but we keep it for now or FE logic
+            "fullTranscript": call.live_transcript, # This is now the JSON string
         }, call_id=call.id)
         
         # If first chunk, notify dashboard to show "View Transcript"
-        if transcript_text and call.live_transcript and len(call.live_transcript) == len(transcript_text):
+        # Since we just appended, transcript_messages should not be empty if raw_text was present
+        has_transcript = len(transcript_messages) > 0
+        
+        # We can optimize this broadcast to only happen once if we want, but keeping it for safety
+        if has_transcript and created: # Only if needed, or maybe checks length? logic was: if transcript_text and len == len ...
              await manager.broadcast_dashboard({
                 "type": "call-upsert",
                 "clientId": client_id,
