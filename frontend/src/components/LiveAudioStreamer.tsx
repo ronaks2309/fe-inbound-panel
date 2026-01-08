@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Volume2, VolumeX, Pause, Play } from "lucide-react";
+import { VolumeX, Pause, Play } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "../lib/utils";
 import type { Call } from "./CallDashboard";
@@ -8,7 +8,6 @@ const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
 interface LiveAudioStreamerProps {
     call: Call;
-    isActive?: boolean;
     onToggle?: () => void;
     className?: string;
     showVolumeSlider?: boolean;
@@ -18,7 +17,6 @@ interface LiveAudioStreamerProps {
 
 export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
     call,
-    isActive = true,
     onToggle,
     className,
     showVolumeSlider = true,
@@ -26,7 +24,7 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
     autoPlay = false
 }) => {
     const [wsStatus, setWsStatus] = useState<"idle" | "connecting" | "open" | "closed" | "error">("idle");
-    const [error, setError] = useState<string | null>(null);
+
     const [isPlaying, setIsPlaying] = useState(autoPlay);
     const [volume, setVolume] = useState(0.8);
     const [token, setToken] = useState<string | null>(null);
@@ -93,7 +91,7 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
         }
 
         if (!call.has_listen_url) {
-            setError("No listen URL");
+
             setWsStatus("error");
             return;
         }
@@ -130,10 +128,11 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
             ws.binaryType = "arraybuffer";
             wsRef.current = ws;
             setWsStatus("connecting");
+            nextStartTimeRef.current = 0;
 
             ws.onopen = async () => {
                 setWsStatus("open");
-                setError(null);
+
                 if (ctx.state === 'suspended') await ctx.resume();
             };
 
@@ -168,7 +167,7 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
 
             ws.onerror = (e) => {
                 console.error("WebSocket error:", e);
-                setError("Connection error");
+
                 setWsStatus("error");
             };
 
@@ -178,13 +177,17 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
 
         } catch (e: any) {
             console.error("Audio setup failed:", e);
-            setError(e.message || "Audio setup failed");
+
             setWsStatus("error");
         }
 
         return () => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.close();
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
             }
             if (audioCtxRef.current) {
                 audioCtxRef.current.close();
@@ -241,9 +244,11 @@ export const LiveAudioStreamer: React.FC<LiveAudioStreamerProps> = ({
                             )}
                             style={{
                                 height: `${h}%`,
-                                animation: isPlaying && wsStatus === 'open'
-                                    ? `music-bar-anim ${0.5 + Math.random() * 0.5}s ease-in-out infinite alternate`
-                                    : 'none',
+                                animationName: isPlaying && wsStatus === 'open' ? 'music-bar-anim' : 'none',
+                                animationDuration: `${0.5 + Math.random() * 0.5}s`,
+                                animationTimingFunction: 'ease-in-out',
+                                animationIterationCount: 'infinite',
+                                animationDirection: 'alternate',
                                 animationDelay: `${i * 0.05}s`
                             }}
                         />
