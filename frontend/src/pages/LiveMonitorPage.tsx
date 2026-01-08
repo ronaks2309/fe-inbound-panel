@@ -201,12 +201,16 @@ export const LiveMonitorPage: React.FC = () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return;
 
-            const res = await fetch(`${backendUrl}/api/${session.user.id}/calls/${callId}/force-transfer`, {
+            const metadata = session.user.user_metadata || {};
+            const tenantId = metadata.tenant_id || "demo-client"; // Fallback to demo-client
+
+            const res = await fetch(`${backendUrl}/api/${tenantId}/calls/${callId}/force-transfer`, {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${session.access_token}`
+                    Authorization: `Bearer ${session.access_token}`,
+                    "Content-Type": "application/json"
                 },
-                body: JSON.stringify({ agent_phone_number: "+15550000000" }) // TODO: Get real agent number
+                body: JSON.stringify({ agent_phone_number: "+16504848853" })
             });
 
             if (res.ok) {

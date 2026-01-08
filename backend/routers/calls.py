@@ -395,18 +395,25 @@ async def force_transfer_call(
             detail=f"Vprod control_url error {resp.status_code}: {resp.text}",
         )
     
-    # Optional: log status event
-    event = CallStatusEvent(
-        call_id=call.id,
-        client_id=call.client_id,      # ✅ required, NOT NULL
-        status="force-transfer",       # ✅ some descriptive status
-        payload={                      # ✅ actual JSON, not null
-            "agent_phone_number": agent_phone,
-            "content": content,
-        },
-    )
-    session.add(event)
-    session.commit()
+    try:
+        # Optional: log status event
+        event = CallStatusEvent(
+            call_id=call.id,
+            client_id=call.client_id,      # ✅ required, NOT NULL
+            status="force-transfer",       # ✅ some descriptive status
+            payload={                      # ✅ actual JSON, not null
+                "agent_phone_number": agent_phone,
+                "content": content,
+            },
+        )
+        session.add(event)
+        session.commit()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[force-transfer] DB COMMIT ERROR: {e}")
+        # We don't raise here if we want to return success for the transfer itself, 
+        # but usually we should warn. For now let's just log it.
 
     return {
         "ok": True,
