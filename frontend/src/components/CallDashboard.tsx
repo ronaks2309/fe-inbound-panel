@@ -44,6 +44,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 
 // NEW IMPORTS
@@ -1195,6 +1196,12 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
               {error && (
                 <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   Error: {error}
+                </div>
+              )}
+
+              {loading && (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="animate-spin text-slate-400" size={32} />
                 </div>
               )}
 
