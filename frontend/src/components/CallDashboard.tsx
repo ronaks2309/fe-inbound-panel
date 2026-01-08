@@ -44,7 +44,6 @@ import {
   ChevronRight,
   MoreHorizontal,
   ChevronDown,
-  Calendar,
 } from "lucide-react";
 
 // NEW IMPORTS
@@ -58,6 +57,9 @@ import { DataTableColumnHeader } from "./table/DataTableColumnHeader";
 import { DataTableFacetedFilter } from "./table/DataTableFacetedFilter";
 import { DataTableDateFilter } from "./table/DataTableDateFilter";
 import { DataTableNumberFilter } from "./table/DataTableNumberFilter";
+import { DateRangePicker } from "./DateRangePicker";
+import type { DateRange } from "react-day-picker";
+import { startOfDay, endOfDay } from "date-fns";
 import { DataTableTextFilter } from "./table/DataTableTextFilter";
 import { supabase } from "../lib/supabase"; // Import Supabase client
 
@@ -230,6 +232,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState({});
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]); // NEW: State for column filters
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   // Modals
   const [transcriptModalCallId, setTranscriptModalCallId] = useState<string | null>(null);
@@ -244,42 +247,58 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
   const { filteredCalls, counts } = useMemo(() => {
     const counts = {
-      all: calls.length,
+      all: 0,
       live: 0,
       transferred: 0,
       followup: 0,
       callback: 0
     };
 
-    calls.forEach(c => {
+    let filtered = calls;
+
+    // 1. Date Range Filter
+    if (dateRange?.from) {
+      const start = startOfDay(dateRange.from);
+      const end = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+
+      filtered = filtered.filter(c => {
+        if (!c.created_at) return false;
+        try {
+          const d = new Date(c.created_at);
+          return d >= start && d <= end;
+        } catch (e) { return false; }
+      });
+    }
+
+    // 2. Compute Counts on Filtered List
+    filtered.forEach(c => {
+      counts.all++;
       const s = (c.status || "").toLowerCase();
       const d = (c.disposition || "").toLowerCase();
 
       if (["in-progress", "ringing", "queued"].includes(s)) counts.live++;
-
-      // Use disposition for these counts
       if (d === "transferred") counts.transferred++;
       if (d === "follow_up_needed") counts.followup++;
       if (d === "callback_requested") counts.callback++;
     });
 
-    const filtered = calls.filter(c => {
+    // 3. Apply Tab Filter
+    filtered = filtered.filter(c => {
       const s = (c.status || "").toLowerCase();
       const d = (c.disposition || "").toLowerCase();
 
       if (activeTab === "all") return true;
       if (activeTab === "live") return ["in-progress", "ringing", "queued"].includes(s);
-
-      // Use disposition for these filters
       if (activeTab === "transferred") return d === "transferred";
       if (activeTab === "followup") return d === "follow_up_needed";
       if (activeTab === "callback") return d === "callback_requested";
-
       return true;
     });
 
     return { filteredCalls: filtered, counts };
-  }, [calls, activeTab]);
+  }, [calls, activeTab, dateRange]);
+
+
 
   // COLUMNS CONFIGURATION
   const columns = useMemo(() => [
@@ -1060,15 +1079,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 gap-2"
-            onClick={() => {/* TODO: Implement date range selector */ }}
-          >
-            <Calendar size={14} />
-            Date Range
-          </Button>
+          <DateRangePicker
+            date={dateRange}
+            setDate={setDateRange}
+            className="h-9"
+          />
           <Button
             variant="outline"
             size="sm"

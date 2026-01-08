@@ -247,7 +247,7 @@ export const LiveMonitorPage: React.FC = () => {
                 {/* Page Header */}
                 <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm">
                     <div>
-                        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Active Monitoring</h1>
+                        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Active Calls</h1>
                         <p className="text-slate-500 text-xs">
                             Real-time oversight of ongoing conversations.
                         </p>
