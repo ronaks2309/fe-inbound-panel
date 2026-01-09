@@ -3,22 +3,20 @@ import {
     X,
     Star,
     MessageSquare,
-    Mic,
     PhoneIncoming,
     Save,
-    Play,
-    Pause,
-    Volume2,
-    VolumeX,
     MoreVertical,
     Download,
     Gauge,
     Copy,
+    Mic,
+    Play,
+    Pause,
 } from "lucide-react";
 import { SimpleToast } from "./ui/SimpleToast";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { cn } from "../lib/utils";
+import { cn, authenticatedFetch } from "../lib/utils";
 import { CopyButton } from "./CopyButton";
 import {
     DropdownMenu,
@@ -36,32 +34,18 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "./ui/popover";
-import { supabase } from "../lib/supabase";
+
 import type { Call } from "./CallDashboard";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
-
-// Helper for authenticated requests
-const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) throw new Error("No authentication token available");
-
-    const headers = {
-        ...(options.headers || {}),
-        "Authorization": `Bearer ${token}`
-    };
-
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) throw new Error("Unauthorized");
-    return res;
-};
 
 interface CallDetailSidebarProps {
     call: Call | null;
     onClose: () => void;
     onCallUpdated: (updatedCall: Call) => void;
 }
+
+import { LiveAudioStreamer } from "./LiveAudioStreamer";
 
 export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose, onCallUpdated }) => {
     const [activeTab, setActiveTab] = useState<"transcript" | "progress" | "summary" | "notes">("transcript");
@@ -125,7 +109,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     const isActive = ["in-progress", "ringing", "queued"].includes(status);
 
     // Transcript content
-    const transcriptText = call.live_transcript || call.final_transcript || "No transcript available yet.";
+    // Transcript content handled in render
 
     // Progress Stages (Horizontal) - moved to Tab
     const stages = ["Identity", "Discovery", "Solution", "Close"];
@@ -304,17 +288,61 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                 <div className="flex-1 overflow-y-auto bg-slate-50/30 flex flex-col relative scroll-smooth">
 
                     {activeTab === "transcript" && (
-                        <>
+                        <div className="flex flex-col w-full min-h-0 bg-white">
+                            {(() => {
+                                const raw = call.live_transcript || call.final_transcript;
+                                let messages: any[] = [];
 
+                                if (!raw) {
+                                    messages = [{ role: 'system', content: "No transcript available." }];
+                                } else {
+                                    try {
+                                        const parsed = JSON.parse(raw);
+                                        messages = Array.isArray(parsed) ? parsed : [{ role: 'system', content: raw }];
+                                    } catch (e) {
+                                        messages = [{ role: 'system', content: raw }];
+                                    }
+                                }
 
-                            <div className="p-6 space-y-4">
-                                <div className="p-4 bg-white border border-slate-100 rounded-xl shadow-sm">
-                                    <pre className="whitespace-pre-wrap text-xs text-slate-800 font-mono leading-relaxed">
-                                        {transcriptText}
-                                    </pre>
-                                </div>
-                            </div>
-                        </>
+                                return messages.map((msg, idx) => {
+                                    const isUser = msg.role === 'user';
+                                    const isSystem = msg.role === 'system';
+
+                                    if (isSystem) {
+                                        return (
+                                            <div key={idx} className="w-full px-6 py-2 bg-slate-50/50 border-b border-slate-50 text-center">
+                                                <p className="text-[10px] italic text-slate-400">
+                                                    {msg.content}
+                                                </p>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className={cn(
+                                                "w-full px-6 py-2 border-b border-slate-50/50 flex flex-col group transition-colors hover:bg-slate-50/30",
+                                                isUser ? "bg-blue-50/30 items-end text-right" : "bg-white items-start text-left"
+                                            )}
+                                        >
+                                            <span className={cn(
+                                                "text-[9px] font-bold uppercase tracking-wider leading-none mb-1 opacity-70",
+                                                isUser ? "text-blue-400" : "text-slate-400"
+                                            )}>
+                                                {isUser ? 'User' : 'AI'}
+                                            </span>
+                                            <p className={cn(
+                                                "text-xs leading-relaxed max-w-[95%]",
+                                                isUser ? "text-blue-900" : "text-slate-700"
+                                            )}>
+                                                {msg.content}
+                                            </p>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
                     )}
 
                     {activeTab === "progress" && (
@@ -476,7 +504,8 @@ const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActi
     }
 
     // LIVE AUDIO PLAYER
-    return <LiveAudioStreamer call={call} />;
+    // LIVE AUDIO PLAYER
+    return <LiveAudioStreamer call={call} className="w-full" showVolumeSlider={true} compact={false} />;
 };
 
 const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
@@ -696,256 +725,24 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
     );
 };
 
-const LiveAudioStreamer: React.FC<{ call: Call }> = ({ call }) => {
-    const [wsStatus, setWsStatus] = useState<"idle" | "connecting" | "open" | "closed" | "error">("idle");
-    const [error, setError] = useState<string | null>(null);
-    const [isPlaying, setIsPlaying] = useState(true); // Default to playing
-    const [volume, setVolume] = useState(0.8);
-    const [duration, setDuration] = useState("00:00");
-    const [token, setToken] = useState<string | null>(null);
 
-    // Fetch Token
-    useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session?.access_token) {
-                setToken(session.access_token);
-            }
-        });
-    }, []);
-
-    // Refs for audio control
-    const audioCtxRef = React.useRef<AudioContext | null>(null);
-    const gainNodeRef = React.useRef<GainNode | null>(null);
-
-    // Log errors
-    useEffect(() => {
-        if (error) console.error("Live Audio Error:", error);
-    }, [error]);
-
-    // Duration Timer
-    useEffect(() => {
-        const updateTimer = () => {
-            if (!call.started_at) return;
-            const start = new Date(call.started_at).getTime();
-            const now = Date.now();
-            const diff = Math.max(0, Math.floor((now - start) / 1000));
-
-            const mins = Math.floor(diff / 60).toString().padStart(2, '0');
-            const secs = (diff % 60).toString().padStart(2, '0');
-            setDuration(`${mins}:${secs}`);
-        };
-
-        const timerId = setInterval(updateTimer, 1000);
-        updateTimer(); // Initial call
-
-        return () => clearInterval(timerId);
-    }, [call.started_at]);
-
-    // Handle Volume Changes
-    useEffect(() => {
-        if (gainNodeRef.current) {
-            gainNodeRef.current.gain.value = volume;
-        }
-    }, [volume]);
-
-    // Handle Play/Pause (Mute/Unmute)
-    useEffect(() => {
-        if (gainNodeRef.current) {
-            // We use gain to "mute" so we don't disconnect the stream
-            // If !isPlaying, mute. If isPlaying, set to current volume.
-            gainNodeRef.current.gain.value = isPlaying ? volume : 0;
-        }
-    }, [isPlaying, volume]);
-
-    // WebSocket & Audio Setup
-    useEffect(() => {
-        if (!call.has_listen_url) {
-            setError("No listen URL");
-            setWsStatus("error");
-            return;
-        }
-
-        if (!token) return;
-
-        let ws: WebSocket | null = null;
-        let filterNode: BiquadFilterNode;
-        let playHead = 0;
-
-        try {
-            const AudioCtxCls = (window as any).AudioContext || (window as any).webkitAudioContext;
-            if (!AudioCtxCls) throw new Error("Web Audio API not supported");
-
-            const ctx = new AudioCtxCls({ sampleRate: 32000 }); // Vapi 16k
-            audioCtxRef.current = ctx;
-
-            if (!ctx) throw new Error("Could not create AudioContext");
-
-            filterNode = ctx.createBiquadFilter();
-            filterNode.type = "lowpass";
-            filterNode.frequency.value = 6000;
-
-            const gain = ctx.createGain();
-            gain.gain.value = isPlaying ? volume : 0;
-            gainNodeRef.current = gain;
-
-            filterNode.connect(gain);
-            gain.connect(ctx.destination);
-
-            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/listen/${call.id}?token=${token}`;
-            ws = new WebSocket(wsUrl);
-            ws.binaryType = "arraybuffer";
-            setWsStatus("connecting");
-
-            ws.onopen = async () => {
-                setWsStatus("open");
-                if (ctx && ctx.state === 'suspended') await ctx.resume();
-            };
-
-            ws.onmessage = (event) => {
-                if (typeof event.data === "string") return;
-                if (!ctx) return;
-
-                try {
-                    const int16 = new Int16Array(event.data);
-                    const buffer = ctx.createBuffer(1, int16.length, 32000);
-                    const channel = buffer.getChannelData(0);
-                    for (let i = 0; i < int16.length; i++) {
-                        channel[i] = int16[i] / 32768;
-                    }
-
-                    const src = ctx.createBufferSource();
-                    src.buffer = buffer;
-                    src.connect(filterNode);
-
-                    const now = ctx.currentTime;
-                    if (playHead < now) playHead = now;
-                    src.start(playHead);
-                    playHead += buffer.duration;
-                } catch (e) {
-                    console.error("Audio decode error", e);
-                }
-            };
-
-            ws.onerror = (e) => {
-                console.error("Live Audio WS Error:", e);
-                setWsStatus("error");
-                setError("Connection failed");
-            };
-            ws.onclose = (e) => {
-                console.log(`Live Audio WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
-                setWsStatus("closed");
-            };
-
-        } catch (e: any) {
-            setError(e.message);
-            setWsStatus("error");
-        }
-
-        return () => {
-            ws?.close();
-            audioCtxRef.current?.close();
-            audioCtxRef.current = null;
-            gainNodeRef.current = null;
-        };
-
-    }, [call.id, call.has_listen_url, token]); // Re-run if call ID changes
-
-    return (
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] flex items-center gap-4 transition-all hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.08)]">
-
-            {/* Play/Pause Button */}
-            <button
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="h-12 w-12 flex items-center justify-center rounded-xl bg-white border border-slate-100 text-blue-600 shadow-sm hover:translate-y-[-1px] hover:shadow-md transition-all active:translate-y-[1px] flex-shrink-0"
-                title={isPlaying ? "Mute" : "Play"}
-            >
-                {isPlaying ? (
-                    <Pause size={20} className="fill-current" />
-                ) : (
-                    <Play size={20} className="fill-current ml-0.5" />
-                )}
-            </button>
-
-            {/* Timer */}
-            <div className="flex flex-col justify-center min-w-[50px]">
-                <span className="text-sm font-bold text-slate-800 font-mono tracking-wide">{duration}</span>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                    <div className={`w-1.5 h-1.5 rounded-full ${wsStatus === 'open' ? 'bg-red-500 animate-pulse' : 'bg-slate-300'}`} />
-                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                        {wsStatus === 'open' ? 'Live' : wsStatus}
-                    </span>
-                </div>
-            </div>
-
-            {/* Visualizer */}
-            <div className="flex-1 flex items-center justify-center gap-[3px] h-8 mx-2 overflow-hidden mask-linear-fade opacity-80">
-                {wsStatus === 'open' && isPlaying ? (
-                    [...Array(12)].map((_, i) => (
-                        // Simulated waveform visualization
-                        <div
-                            key={i}
-                            className="w-1.5 rounded-full bg-blue-500 transition-all duration-75"
-                            style={{
-                                height: `${Math.max(20, Math.random() * 100)}%`,
-                                opacity: Math.max(0.3, Math.random())
-                            }}
-                        />
-                    ))
-                ) : (
-                    // Static idle state
-                    [...Array(12)].map((_, i) => (
-                        <div
-                            key={i}
-                            className="w-1.5 h-1.5 rounded-full bg-slate-200"
-                        />
-                    ))
-                )}
-            </div>
-
-            {/* Volume Control */}
-            <div
-                className="flex items-center gap-2 relative group"
-            >
-                <button
-                    onClick={() => {
-                        const newVol = volume === 0 ? 0.8 : 0;
-                        setVolume(newVol);
-                        if (newVol > 0 && !isPlaying) setIsPlaying(true);
-                    }}
-                    className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 rounded-full hover:bg-slate-50"
-                >
-                    {volume === 0 || !isPlaying ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                </button>
-
-                <div className="w-20 hidden group-hover:block transition-all duration-300 ease-in-out">
-                    <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={isPlaying ? volume : 0}
-                        onChange={(e) => {
-                            setVolume(parseFloat(e.target.value));
-                            if (!isPlaying && parseFloat(e.target.value) > 0) setIsPlaying(true);
-                        }}
-                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    />
-                </div>
-            </div>
-        </div>
-    );
-}
 // HELPER COMPONENTS
 const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
     const [elapsed, setElapsed] = useState(0);
 
     useEffect(() => {
         if (!call.started_at) return;
-        const interval = setInterval(() => {
+
+        const updateTimer = () => {
             const start = new Date(call.started_at!).getTime();
             const now = Date.now();
             setElapsed(Math.floor((now - start) / 1000));
-        }, 1000);
+        };
+
+        // Call immediately to avoid initial 0:00 display
+        updateTimer();
+
+        const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
     }, [call.started_at]);
 

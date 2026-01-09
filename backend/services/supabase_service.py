@@ -43,10 +43,35 @@ def get_user_by_id(user_id: str):
         return None
 
 
-def create_signed_url(file_path: str, bucket_name: str = "recordings", expiry: int = 3600, token: str = None) -> str | None:
+def create_scoped_client(token: str) -> Client | None:
+    """
+    Creates a new Supabase client with the given Auth token (for RLS).
+    """
+    if not token or not SUPABASE_ANON_KEY or not SUPABASE_URL:
+        return None
+        
+    try:
+        client = create_client(
+            SUPABASE_URL, 
+            SUPABASE_ANON_KEY, 
+            options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
+        )
+        # Patch storage_url if needed
+        if client.storage_url:
+            s_url = str(client.storage_url)
+            if not s_url.endswith("/"):
+                client.storage_url = s_url + "/"
+        return client
+    except Exception as e:
+        logging.warning(f"Failed to create scoped Supabase client: {e}")
+        return None
+
+
+def create_signed_url(file_path: str, bucket_name: str = "recordings", expiry: int = 3600, token: str = None, client: Client = None) -> str | None:
     """
     Generates a signed URL for a file in a Supabase storage bucket.
-    If 'token' is provided, creates a scoped client to enforce RLS.
+    If 'client' is provided, it uses it.
+    If 'token' is provided (and no client), creates a scoped client to enforce RLS.
     """
     if not file_path:
         return None
@@ -56,32 +81,19 @@ def create_signed_url(file_path: str, bucket_name: str = "recordings", expiry: i
         return file_path
 
     # Determine which client to use
-    client = supabase
+    if client:
+        # Use the provided client (already scoped or system)
+        pass
+    elif token and SUPABASE_ANON_KEY and SUPABASE_URL:
+        # Create a lightweight client for this request to verify RLS
+        scoped = create_scoped_client(token)
+        if scoped:
+            client = scoped
     
-    # If token is provided and we have the Anon Key, try to use a scoped client
-    if token and SUPABASE_ANON_KEY and SUPABASE_URL:
-        try:
-            # Create a lightweight client for this request to verify RLS
-            client = create_client(
-                SUPABASE_URL, 
-                SUPABASE_ANON_KEY, 
-                options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
-            )
-            # Patch storage_url to include trailing slash if missing
-            # storage_url might be an httpx.URL object, so cast to str first
-            if client.storage_url:
-                s_url = str(client.storage_url)
-                if not s_url.endswith("/"):
-                    client.storage_url = s_url + "/"
-        except Exception as e:
-            logging.warning(f"Failed to create scoped Supabase client: {e}. Falling back to system client.")
-            # Fallback to system client (service role) IS DANGEROUS if the intent is security.
-            # But the caller might have already verified permissions.
-            # However, to meet "same level of security" (RLS), we should probably FAIL if scoped creation fails?
-            # Let's log warning and proceed with caution. 
-            # If the user specifically passed a token, they expect RLS check.
-            # But 'supabase' global variable is the Service Role one.
-            pass
+    # Fallback to system client if nothing else
+    if not client:
+        client = supabase
+
 
     if not client:
         logging.warning("Supabase client not initialized, cannot sign URL.")

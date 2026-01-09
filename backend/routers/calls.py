@@ -13,6 +13,10 @@ from services.supabase_service import supabase, create_signed_url
 from typing import Optional, List
 from datetime import datetime, timezone
 from dependencies.auth import get_current_user, UserContext, get_secure_session
+from starlette.concurrency import run_in_threadpool
+import asyncio
+from services.supabase_service import supabase, create_signed_url, create_scoped_client
+
 
 router = APIRouter()
 
@@ -68,9 +72,10 @@ class CallDetailResponse(CallListResponse):
 
 
 @router.get("/api/{client_id}/calls", response_model=List[CallListResponse])
-def listCalls(
+async def listCalls(
     client_id: str, 
     include_content: bool = False,
+    status: Optional[str] = None, # NEW: filter by comma-separated status
     user_id: Optional[str] = None, 
     session: Session = Depends(get_secure_session),
     current_user: UserContext = Depends(get_current_user)
@@ -79,6 +84,7 @@ def listCalls(
     List calls for a specific client.
     Returns lightweight call summaries without heavy transcript/summary fields.
     Use include_content=True to get full transcript/summary data (slower).
+    Use status=in-progress,ringing to filter by specific statuses.
     """
     # 1. Strict Tenant/Client Check
     if current_user.client_id != client_id:
@@ -89,23 +95,47 @@ def listCalls(
         .where(Call.client_id == current_user.client_id)
     )
     
+    if user_id:
+        stmt = stmt.where(Call.user_id == user_id)
+
+    if status:
+        # Support comma-separated list: ?status=in-progress,ringing
+        status_list = [s.strip() for s in status.split(',')]
+        if status_list:
+             stmt = stmt.where(Call.status.in_(status_list))
+    
     # Authorization Logic is now handled by RLS via get_secure_session
     # We just need to query the table, and Postgres filters it for us.
     stmt = stmt.order_by(Call.created_at.desc())
-    calls = session.exec(stmt).all()
+    
+    # Run synchronous DB query in threadpool
+    calls = await run_in_threadpool(session.exec, stmt)
+    calls = calls.all()
     
     # Build response list with explicit fields
     response = []
     bucket_name = os.getenv("SUPABASE_BUCKET", "recordings")
     
-    for c in calls:
-        # Calculate heavy fields only if requested
+    # Pre-create scoped client ONCE if needed for signing
+    signing_client = None
+    if include_content and current_user.token:
+        signing_client = create_scoped_client(current_user.token)
+    
+    # Prepare async tasks for signing URLs
+    async def process_call(c: Call):
         signed_url = None
         if include_content and c.recording_url:
              # 7 days expiry for exports
-             signed_url = create_signed_url(c.recording_url, bucket_name, 3600 * 24 * 7, token=current_user.token)
-
-        response.append(CallListResponse(
+             # Use the shared signing_client to avoid creating 50+ clients
+             signed_url = create_signed_url(
+                 c.recording_url, 
+                 bucket_name, 
+                 3600 * 24 * 7, 
+                 token=current_user.token,
+                 client=signing_client
+             )
+        
+        return CallListResponse(
             # Explicitly include only the fields we want
             id=c.id,
             client_id=c.client_id,
@@ -134,8 +164,107 @@ def listCalls(
             hasListenUrl=bool(c.listen_url),
             hasLiveTranscript=bool(c.live_transcript),
             hasFinalTranscript=bool(c.final_transcript),
-        ))
+        )
+
+    # Execute all processing in parallel
+    # If include_content is False, this is instant.
+    # If True, the signing calls happen in parallel threads (due to HTTP requests).
+    # Since create_signed_url is synchronous/blocking, we should wrap it?
+    # Actually, create_signed_url uses 'supabase-py' which is synchronous.
+    # So we need to offload the signing to threadpool too if we want true async concurrency 
+    # OR we just rely on the fact that we are doing it in a list.
+    # A simple list comprehension block-waits.
+    # Ideally: await asyncio.gather(*[run_in_threadpool(create_signed_url, ...) ...])
     
+    # Optimizing:
+    # We'll create a helper to do the FULL transformation in threadpool if signing is needed.
+    
+    if include_content:
+        # Heaviest path: signing URLs one by one is slow.
+        # We want to run them in parallel.
+        # Since create_signed_url does I/O, let's concurrently run them.
+        
+        async def get_signed_url_async(url):
+            if not url: return None
+            return await run_in_threadpool(
+                create_signed_url, 
+                url, 
+                bucket_name, 
+                3600 * 24 * 7, 
+                token=current_user.token, 
+                client=signing_client
+            )
+            
+        # 1. Fetch all signed URLs in parallel
+        # We make a list of tasks
+        tasks = []
+        for c in calls:
+            if c.recording_url:
+                tasks.append(get_signed_url_async(c.recording_url))
+            else:
+                tasks.append(asyncio.sleep(0, result=None)) # wrapper for consisteny
+                
+        signed_urls = await asyncio.gather(*tasks)
+        
+        # 2. Construct responses
+        for i, c in enumerate(calls):
+            response.append(CallListResponse(
+                id=c.id,
+                client_id=c.client_id,
+                phone_number=c.phone_number,
+                status=c.status,
+                started_at=ensure_utc(c.started_at),
+                ended_at=ensure_utc(c.ended_at),
+                cost=c.cost,
+                user_id=str(c.user_id) if c.user_id else None,
+                username=c.username,
+                duration=c.duration,
+                recording_url=c.recording_url,
+                created_at=ensure_utc(c.created_at),
+                updated_at=ensure_utc(c.updated_at),
+                sentiment=c.sentiment,
+                disposition=c.disposition,
+                notes=c.notes,
+                feedback_rating=c.feedback_rating,
+                feedback_text=c.feedback_text,
+                final_transcript=c.final_transcript,
+                summary=c.summary,
+                signed_recording_url=signed_urls[i],
+                hasListenUrl=bool(c.listen_url),
+                hasLiveTranscript=bool(c.live_transcript),
+                hasFinalTranscript=bool(c.final_transcript),
+            ))
+            
+    else:
+        # Fast path (no signing)
+        for c in calls:
+             response.append(CallListResponse(
+                id=c.id,
+                client_id=c.client_id,
+                phone_number=c.phone_number,
+                status=c.status,
+                started_at=ensure_utc(c.started_at),
+                ended_at=ensure_utc(c.ended_at),
+                cost=c.cost,
+                user_id=str(c.user_id) if c.user_id else None,
+                username=c.username,
+                duration=c.duration,
+                recording_url=c.recording_url,
+                created_at=ensure_utc(c.created_at),
+                updated_at=ensure_utc(c.updated_at),
+                sentiment=c.sentiment,
+                disposition=c.disposition,
+                notes=c.notes,
+                feedback_rating=c.feedback_rating,
+                feedback_text=c.feedback_text,
+                final_transcript=None,
+                summary=None,
+                signed_recording_url=None,
+                hasListenUrl=bool(c.listen_url),
+                hasLiveTranscript=bool(c.live_transcript),
+                hasFinalTranscript=bool(c.final_transcript),
+            ))
+            
     return response
 
 
@@ -277,18 +406,25 @@ async def force_transfer_call(
             detail=f"Vprod control_url error {resp.status_code}: {resp.text}",
         )
     
-    # Optional: log status event
-    event = CallStatusEvent(
-        call_id=call.id,
-        client_id=call.client_id,      # ✅ required, NOT NULL
-        status="force-transfer",       # ✅ some descriptive status
-        payload={                      # ✅ actual JSON, not null
-            "agent_phone_number": agent_phone,
-            "content": content,
-        },
-    )
-    session.add(event)
-    session.commit()
+    try:
+        # Optional: log status event
+        event = CallStatusEvent(
+            call_id=call.id,
+            client_id=call.client_id,      # ✅ required, NOT NULL
+            status="force-transfer",       # ✅ some descriptive status
+            payload={                      # ✅ actual JSON, not null
+                "agent_phone_number": agent_phone,
+                "content": content,
+            },
+        )
+        session.add(event)
+        session.commit()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[force-transfer] DB COMMIT ERROR: {e}")
+        # We don't raise here if we want to return success for the transfer itself, 
+        # but usually we should warn. For now let's just log it.
 
     return {
         "ok": True,

@@ -5,6 +5,13 @@ import { Toaster } from 'sonner';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { LiveMonitorPage } from './pages/LiveMonitorPage';
+import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
+import { AgentsPage } from './pages/AgentsPage';
+import { UsersPage } from './pages/UsersPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 const App: React.FC = () => {
@@ -31,6 +38,62 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/active-calls"
+          element={
+            <ProtectedRoute>
+              <LiveMonitorPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard-overview"
+          element={
+            <ProtectedRoute>
+              <DashboardOverviewPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/agents"
+          element={
+            <ProtectedRoute>
+              <AgentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <ProtectedRoute>
+              <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute>
+              <NotificationsPage />
             </ProtectedRoute>
           }
         />
