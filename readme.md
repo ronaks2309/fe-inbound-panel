@@ -4,7 +4,7 @@
 
 This application provides a comprehensive dashboard for tracking active and historical calls. It uses specialized WebSockets for real-time state synchronization and audio streaming, and leverages Supabase for secure authentication and data persistence.
 
-![Dashboard Preview](frontend/src/assets/dashboard-preview.png)
+![Dashboard Preview](frontend/public/dashboard-preview.png)
 *(Note: Add a screenshot here locally if desired)*
 
 ---
