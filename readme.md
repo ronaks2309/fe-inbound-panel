@@ -1,291 +1,335 @@
-# CallMark AI Inbound Call Dashboard (FastAPI + React)
+# CallMark AI Inbound Call Dashboard
 
-Real-time monitoring for AI voice agents powered by VAPI.ai. The FastAPI backend ingests VAPI webhooks, persists call state in SQLite via SQLModel, and broadcasts updates over WebSockets. The React + Vite frontend renders a live dashboard with listen-in audio, transcript viewing, and force-transfer controls.
+**Real-time monitoring for AI voice agents powered by [vprod.ai](https://vprod.ai).**
+
+This application provides a comprehensive dashboard for tracking active and historical calls. It uses specialized WebSockets for real-time state synchronization and audio streaming, and leverages Supabase for secure authentication and data persistence.
+
+![Dashboard Preview](frontend/public/dashboard-preview.png)
+*(Note: Add a screenshot here locally if desired)*
+
+---
 
 ## Repository Map
-- **backend/** – FastAPI application with organized structure:
-  - `app.py` – Main FastAPI application entry point
-  - `database/` – SQLModel models, DB connection (`calls_dashboard.db`)
-  - `routers/` – API routes (calls, webhooks, debug, websockets)
-  - `services/` – Business logic (call_service, supabase_service)
-  - `recordings/` – Local fallback for recordings
-- **frontend/** – React + Vite + Tailwind CSS v4 dashboard UI
-  - `src/components/` – CallDashboard, TranscriptModal, ListenModal, RecordingModal
-- api_docs.md – Existing HTTP/WebSocket reference
-- architecture-diagrams.md – Original Mermaid diagrams
-- postman_collection.json – Sample requests
 
-## Quickstart
-Prereqs: Python 3.11+ (tested with 3.13), Node 20+, npm, SQLite (built-in).
+## Repository Map
 
-Backend
-1) cd backend
-2) python -m venv .venv && .\.venv\Scripts\activate
-3) pip install fastapi uvicorn sqlmodel httpx
-4) python -m uvicorn app:app --reload --port 8000
-Notes: Run from `backend/` directory. Startup seeds Client(id="demo-client"). DB lives at `backend/database/calls_dashboard.db`. Delete the file to reset local data.
+### `backend/` (FastAPI + SQLModel)
+- **`app.py`**: Main application entry point. Configures middleware (CORS, HSTS).
+- **`routers/`**:
+    - `webhooks.py`: Ingests vprod events (status-update, transcript, end-of-call).
+    - `calls.py`: REST endpoints for listing/retrieving calls.
+    - `websockets.py`: Handlers for dashboard updates (`/ws/dashboard`) and audio streaming (`/ws/listen`).
+- **`services/`**:
+    - `websocket_manager.py`: `BroadcastManager` class. Handles connection pooling and tenant-based message isolation.
+    - `call_service.py`: Core logic for upserting calls and processing reports.
+    - `supabase_service.py`: Interfaces with Supabase Storage for recordings.
+    - `create_user.py`: **Admin Script** for creating new users in Supabase Auth & Postgres.
+- **`dependencies/`**:
+    - `auth.py`: JWT validation and **Row Level Security (RLS)** context switching.
+    - `ws_auth.py`: Query-param based auth for WebSockets.
+- **`database/`**:
+    - `models.py`: SQLModel definitions (`Call`, `Client`, `CallStatusEvent`, `Profile`).
+    - `connection.py`: Database session management and engine configuration.
+- **`migrations/`**: Alembic migration scripts for database schema versioning.
 
-Frontend
-1) cd frontend
-2) npm install
-3) Set VITE_BACKEND_URL (defaults to http://localhost:8000)
-   - Windows: set VITE_BACKEND_URL=http://localhost:8000
-   - PowerShell: ="http://localhost:8000"
-4) npm run dev -- --host
-5) Open the printed dev URL (e.g., http://localhost:5173).
+### `frontend/` (React + Vite + Tailwind v4)
+- **`src/context/`**:
+    - **`ActiveCallContext.tsx`**: Singleton WebSocket manager. (See "Frontend Architecture" below).
+    - **`GlobalContext.tsx`**: User session and theme state.
+- **`src/components/`**:
+    - **`Sidebar.tsx`**: Layout shell with navigation and **real-time active call badge**.
+    - **`LiveCallTile.tsx`**: Real-time card for in-progress calls. Includes `LiveAudioStreamer`.
+    - **`LiveAudioStreamer.tsx`**: Web Audio API consumer for low-latency audio playback.
+    - **`CallDashboard.tsx`**: Main data table for call logs with filtering/sorting.
+    - **`CallDetailSidebar.tsx`**: Deep-dive view for call transcripts and analysis.
+- **`src/pages/`**:
+    - **`LiveMonitorPage.tsx`**: "Active Calls" view. Subscribes to `ActiveCallContext`.
+    - **`CallDashboard.tsx`**: Historical call logs.
+    - **`LoginPage.tsx`**: Supabase Auth login.
 
-## Environment
-- Frontend: 
-  - `VITE_BACKEND_URL`: Base URL for backend HTTP + WS (default: `http://localhost:8000`).
-- Backend:
-  - `DATABASE_URL`: SQLModel database URL (default: `sqlite:///./vapi_dashboard.db`).
-  - `SUPABASE_URL`: Supabase project URL for Auth/Storage.
-  - `SUPABASE_KEY`: Supabase Service Role Key (for storage signing).
-  - `SUPABASE_BUCKET`: Storage bucket name (default: `recordings`).
+---
 
-## Data Model (SQLModel)
-- Client: id (pk), name, created_at
-- Call: id (pk), client_id (fk Client), phone_number, status, started_at, ended_at, cost, user_id, username, duration, listen_url, control_url, live_transcript, final_transcript, recording_url, summary (JSON), created_at, updated_at
-- CallStatusEvent: id (pk), call_id (fk Call), client_id (fk Client), user_id, status, payload (JSON), created_at
+## Quick Start
 
-## Backend Overview
-Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins.
+### Prerequisites
+- Python 3.11+
+- Node.js 20+
+- [Supabase Project](https://supabase.com) (Postgres DB + Auth)
 
-### Architecture
-- **Routers**: Modular route handlers in `routers/` (webhooks, calls, debug, websockets)
-- **Services**: Business logic in `services/call_service.py` (webhook processing, call updates)
-- **Database**: Models in `database/models.py`, connection in `database/connection.py`
-- **Response Models**: Pydantic models in `routers/calls.py` for explicit API contracts
+### 1. Backend Setup
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-### Lifecycle
-- on_startup: `init_db()` creates tables; seeds Client("demo-client") when absent.
-- Root/health: GET / returns a message; GET /health returns {"status":"ok"}.
+**Environment Variables (`backend/.env`)**
+```ini
+DATABASE_URL=postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres
+SUPABASE_URL=https://[PROJECT-ID].supabase.co
+# Service Key used ONLY for admin scripts & webhooks (Bypasses RLS)
+SUPABASE_SERVICE_ROLE_KEY=[SECRET-KEY]
+# Anon Key used for client-side scoped requests (Respects RLS)
+SUPABASE_ANON_KEY=[PUBLIC-KEY]
+```
 
-### REST/HTTP Endpoints
-- **POST /webhooks/vapi/{client_id}** (in `routers/webhooks.py`)
-  - Delegates to `CallService` handlers based on message.type:
-    - `status-update`: upsert Call (phone/listen/control/status); mark ended_at when status indicates completion; insert CallStatusEvent; broadcast call-upsert.
-    - `transcript`: append transcript text to Call.live_transcript; insert CallStatusEvent; broadcast transcript-update with append + fullTranscript.
-    - `end-of-call-report`: mark status="ended", set ended_at, final_transcript, recording_url (downloads and stores locally), summary; insert CallStatusEvent; broadcast call-upsert.
-    - anything else: logs as generic CallStatusEvent; no broadcast.
-- **GET /api/{client_id}/calls** → `listCalls()` – Returns `List[CallListResponse]`
-  - Query Params: `user_id` (optional) to filter by assigned agent.
-  - Lightweight response excluding heavy fields (transcripts, summary)
-  - Includes computed flags: `hasListenUrl`, `hasLiveTranscript`, `hasFinalTranscript`
-- **GET /api/calls/{call_id}** → `detailCall()` – Returns `CallDetailResponse`
-  - Full call details including transcripts and summary
-- **GET /api/calls/{call_id}/recording** → Get Recording URL
-  - Returns a signed URL from Supabase Storage (valid for 24h) or a direct URL if already absolute.
-- POST /api/{client_id}/calls/{call_id}/force-transfer
-  - Body: { "agent_phone_number": "+1...", "content": "optional message" }
-  - Looks up Call.control_url; POSTs {type:"transfer",destination:{type:"number",number:<agent>},content:<content>} to that URL via httpx.
-  - Inserts CallStatusEvent(status="force-transfer", payload agent_phone_number/content).
-- Debug helpers
-  - POST /api/debug/create-test-call/{client_id} � upsert Call with optional call_id/phone_number/status/event_payload, log CallStatusEvent, broadcast call-upsert.
-  - POST /api/debug/log-status-event/{client_id}/{call_id} � insert CallStatusEvent(status/payload).
-  - GET /api/debug/status-events/{client_id}/{call_id} � list events for a call.
+**Run Server**
+```bash
+python -m uvicorn app:app --reload --port 8000
+```
 
-### WebSockets
-- /ws/dashboard � registers dashboard clients. Server sends an initial hello. Broadcasts two message shapes:
-  - call-upsert
-    `json
-    {
-      "type": "call-upsert",
-      "clientId": "demo-client",
-      "call": {
-        "id": "abc",
-        "status": "in-progress",
-        "phoneNumber": "+1555...",
-        "startedAt": "2025-12-10T07:05:14.195889",
-        "endedAt": null,
-        "listenUrl": "wss://...",
-        "hasTranscript": true,
-        "hasLiveTranscript": false,
-        "hasRecording": true,
-        "finalTranscript": "optional",
-        "liveTranscript": "optional",
-        "recordingUrl": "optional"
-      }
-    }
-    `
-  - transcript-update
-    `json
-    {
-      "type": "transcript-update",
-      "clientId": "demo-client",
-      "callId": "abc",
-      "append": "new line",
-      "fullTranscript": "all lines so far"
-    }
-    `
-- /ws/fake-audio � test endpoint; after a hello text frame it streams random 1280-byte binary chunks for ~10 seconds for frontend audio testing.
+### 2. Frontend Setup
+```bash
+cd frontend
+npm install
+```
 
-## Frontend Overview (frontend/src)
+**Environment Variables (`frontend/.env`)**
+```ini
+VITE_BACKEND_URL=http://localhost:8000
+VITE_SUPABASE_URL=https://[PROJECT-ID].supabase.co
+VITE_SUPABASE_ANON_KEY=[PUBLIC-KEY]
+```
 
-### Component Structure (Refactored for Maintainability)
-- **App.tsx** – Mounts CallDashboard
-- **CallDashboard.tsx** (main component, ~560 lines)
-  - Bootstraps calls via `GET /api/demo-client/calls`
-  - Opens WebSocket to `${backendUrl}/ws/dashboard`; handles `call-upsert` and `transcript-update` messages
-  - Manages state for calls list and modal visibility
-  - Includes helper functions: `handleCallUpsert()`, `handleForceTransfer()`, `renderActions()`
-  - Actions per call:
-    - **Active calls** (in-progress/ringing/queued): Listen, Transcript, Take Over (force transfer to +16504848853)
-    - **Ended calls**: Call Recording, View Transcript
-- **TranscriptModal.tsx** (~160 lines)
-  - Fetches full call details on open (if not already loaded)
-  - Shows final transcript for ended calls, live transcript for active calls
-  - Displays call summary if available
-- **ListenModal.tsx** (~260 lines)
-  - Connects to backend WebSocket proxy `/ws/listen/{call_id}`
-  - Expects 16-bit PCM mono at 32kHz
-  - Applies low-pass filter (6000Hz) + gain reduction (0.8) for audio quality
-  - Schedules audio chunks smoothly to avoid gaps
-  - Cleans up WebSocket + AudioContext on close
-- **RecordingModal.tsx** (~60 lines)
-  - Simple audio playback for call recordings
-  - Assumes relative URLs and prepends `backendUrl`
-- **Styling**: Tailwind CSS v4
+**Run Client**
+```bash
+npm run dev
+```
 
-## Expected CallMark AI Webhook Payloads (examples)
-- Status update
-  `json
-  {
-    "message": {
-      "type": "status-update",
-      "status": "in-progress",
-      "call": {
-        "id": "call-123",
-        "phoneNumber": "+18005550123",
-        "listenUrl": "wss://...",
-        "controlUrl": "https://..."
-      }
-    }
-  }
-  `
-- Transcript frame
-  `json
-  {
-    "message": {
-      "type": "transcript",
-      "transcript": "Customer: I have a billing question",
-      "call": { "id": "call-123" }
-    }
-  }
-  `
-- End-of-call report
-  `json
-  {
-    "message": {
-      "type": "end-of-call-report",
-      "endedReason": "customer_hangup",
-      "call": { "id": "call-123" },
-      "artifact": {
-        "recording": { "url": "https://.../recording.mp3" },
-        "transcript": "Full transcript text...",
-        "messages": [ { "role": "user", "content": "..." } ]
-      }
-    }
-  }
-  `
+### 3. Creating a User
+Use the helper script to create a user in both Supabase Auth and your local Profiles table:
+```bash
+cd backend
+# Run as module to ensure imports work
+python -m services.create_user
+```
+Follow the interactive prompts to set email, password, and `client_id` (Tenant ID).
 
-## Debugging and Local Testing
-- Seed data: POST /api/debug/create-test-call/demo-client with body { "status": "in-progress" }.
-- Inspect events: GET /api/debug/status-events/demo-client/<call_id>.
-- Audio smoke test: point ListenModal to ws://localhost:8000/ws/fake-audio to confirm audio playback pipeline (will sound like static).
-- Reset DB: delete backend/vapi_dashboard.db (only if you want a clean slate).
+---
 
-## Operational Notes
-- Multi-tenancy: client_id is always a path param; CallStatusEvent requires client_id.
-- Force transfer requires Call.control_url to be populated by prior webhooks; backend returns 400 if absent.
-- WebSocket backpressure: BroadcastManager drops dead sockets when sends fail.
-- Security: Auth is not implemented; add API auth + tenant isolation before production; restrict CORS origins.
-- Production DB: swap SQLite for Postgres by updating DATABASE_URL/engine.
+## Data Model (Postgres/SQLModel)
 
-## Architecture (Mermaid)
-### High-level components
+### 1. `Client` Table
+Represents a Tenant or Organization.
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `VARCHAR(PK)` | Manual ID (e.g. "demo-client") |
+| `name` | `VARCHAR` | Display Name |
+| `created_at` | `TIMESTAMP` | Creation time |
+
+### 2. `Profile` Table (`public.profiles`)
+Links Auth Users to Clients.
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `UUID(PK)` | References `auth.users.id` |
+| `client_id` | `VARCHAR` | References `Client.id` |
+| `role` | `VARCHAR` | `admin` or `user` |
+| `username` | `VARCHAR` | Unique username |
+| `display_name` | `VARCHAR` | Human readable name |
+| `created_at` | `TIMESTAMP` | |
+
+### 3. `Call` Table
+The core record for voice sessions.
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `VARCHAR(PK)` | vprod Call ID |
+| `client_id` | `VARCHAR(FK)` | Tenant Reference |
+| `phone_number` | `VARCHAR` | Caller's Number |
+| `status` | `VARCHAR` | `in-progress`, `ended`, `ringing`, `queued` |
+| `started_at` | `TIMESTAMP` | Call Start Time |
+| `ended_at` | `TIMESTAMP` | Call End Time |
+| `duration` | `INTEGER` | Duration in seconds |
+| `user_id` | `VARCHAR` | Assigned Agent ID |
+| `username` | `VARCHAR` | Assigned Agent Name |
+| `cost` | `FLOAT` | vprod Cost |
+| `listen_url` | `VARCHAR` | WebSocket URL for audio |
+| `control_url` | `VARCHAR` | HTTP URL for call controls |
+| **`live_transcript`** | `TEXT` | JSON Array (Incremental updates) |
+| **`final_transcript`** | `TEXT` | Complete transcript blob |
+| `recording_url` | `VARCHAR` | Path in `recordings` bucket |
+| `summary` | `JSON` | AI Summary object |
+| `sentiment` | `VARCHAR` | Overall sentiment |
+| `disposition` | `VARCHAR` | Call outcome (e.g. "qualified") |
+| `notes` | `TEXT` | Agent notes |
+| `feedback_rating` | `INTEGER` | 1-5 Rating |
+| `feedback_text` | `TEXT` | Feedback comments |
+| `created_at` | `TIMESTAMP` | |
+| `updated_at` | `TIMESTAMP` | |
+
+### 4. `CallStatusEvent` Table
+Audit log of all call state changes.
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `INTEGER(PK)` | Auto-increment ID |
+| `call_id` | `VARCHAR(FK)` | References `Call.id` |
+| `client_id` | `VARCHAR(FK)` | References `Client.id` |
+| `user_id` | `VARCHAR` | Actor (if applicable) |
+| `status` | `VARCHAR` | Event status (`ringing`, `ended`, `transcript`) |
+| `payload` | `JSON` | Full webhook payload snapshot |
+| `created_at` | `TIMESTAMP` | Event time |
+
+---
+
+## Architecture & Security
+
+### Authentication Flow
+1. **Frontend**: User logs in via `supabase-js`. Receives a JWT (`access_token`).
+2. **API Request**: Frontend sends JWT in `Authorization: Bearer <token>` header.
+3. **Backend Middleware (`auth.py`)**:
+   - Verifies JWT using Supabase public key.
+   - Extracts `sub` (User ID).
+   - **Impersonation**: Executes `SET LOCAL request.jwt.claim.sub = 'user_id'` and `SET LOCAL role = 'authenticated'`.
+   - This ensures all subsequent DB queries respect **Postgres Row Level Security (RLS)** policies.
+
+### Row Level Security (RLS)
+The application relies on RLS to enforce tenant isolation.
+- **Policies** (on Supabase):
+  - `SELECT`: Users can only see rows where `client_id` matches their Profile's `client_id`.
+  - `INSERT/UPDATE`: Only strictly permitted for specific services or matching tenants.
+- **Service Role**: The backend uses the `SUPABASE_SERVICE_ROLE_KEY` **ONLY** for:
+  - Webhook ingestion (public/system events).
+  - Background processing (transcripts/summaries).
+  - Admin scripts (`create_user.py`).
+### Deep Dive: `ActiveCallContext`
+The `ActiveCallContext` is the heartbeat of the frontend's real-time capabilities. It acts as a **Singleton WebSocket Manager** that persists across page navigations (wrapped in `App.tsx`).
+
+**Key Responsibilities:**
+1.  **Connection Management**:
+    - Establishes a single WebSocket connection to `/ws/dashboard` upon user login.
+    - Handles automatic reconnection logic if the connection drops.
+    - Manages authentication by passing the Supabase JWT in the connection URL.
+
+2.  **Global State Tracking**:
+    - Tracks the distinct count of active calls (`activeCallCount`) for the entire tenant.
+    - Updates the **Sidebar Badge** in real-time, ensuring users know about active calls even when on other pages (e.g. viewing historical logs).
+
+3.  **Event Dispatching**:
+    - Exposes a `subscribe()` method allowing specific pages (like `LiveMonitorPage`) to listen for granular events (`transcripts`, `status-updates`).
+    - This separation ensures the global context handles the *connection*, while pages handle the *data display*.
+
+4.  **Global Feedback**:
+    - Triggers **Toast Notifications** and **Sound Alerts** (web audio beep) whenever a *new* incoming call is detected.
+
+### Real-time Audio Streaming
+A dedicated WebSocket endpoint handles low-latency audio for "Listen In".
+- **Path**: `/ws/listen/{call_id}?token={jwt}`
+- **Flow**:
+  1. vprod sends audio RTP/WS to Backend.
+  2. Backend buffers and forwards linear 16-bit PCM chunks to connected Frontend consumers.
+  3. Frontend `LiveAudioStreamer` component uses **Web Audio API** to schedule and play chunks without jitter.
+
+---
+
+## Architecture Diagrams
+
+### 1. High-Level System Components
 ```mermaid
 flowchart TD
-  subgraph VAPI
-    WB["VAPI webhook\nPOST /webhooks"]
-    LS["listenUrl WS"]
-    CTL["controlUrl HTTP"]
-  end
-
-  subgraph Backend[FastAPI]
-    API[/REST + Webhooks/]
-    WS[/WS /ws/dashboard/]
-    DB[(SQLite/SQLModel)]
-  end
-
-  subgraph Frontend[React Dashboard]
-    UI[CallDashboard]
-    LModal[ListenModal]
-    TModal[TranscriptModal]
-  end
-
-  WB --> API
-  API --> DB
-  API --> WS
-  DB --> WS
-  WS --> UI
-  UI --> WS
-  LModal --> LS
-  UI --> CTL
+    User[Agent/Supervisor] -->|HTTPS + WSS| FE[React Frontend]
+    FE -->|Auth| Supabase[Supabase Auth]
+    FE -->|REST API| BE[FastAPI Backend]
+    
+    subgraph Backend
+        API[Routers]
+        WS[WebSocket Manager]
+        Auth[Auth Dependency]
+        Service[Call Service]
+    end
+    
+    BE -->|SQLModel + RLS| DB[(Postgres DB)]
+    BE -->|Admin API| Storage[Supabase Storage]
+    
+    vprod[vprod.ai] -->|Webhooks| BE
+    vprod -->|Audio Stream| BE
 ```
 
-### Status update flow
+### 2. New Call Flow (Incoming)
 ```mermaid
 sequenceDiagram
-  participant V as VAPI
-  participant B as Backend
-  participant DB as SQLite
-  participant W as WS /ws/dashboard
-  participant F as Frontend
+    participant V as vprod
+    participant BE as Backend
+    participant DB as Postgres
+    participant WS as WebSocket Manager
+    participant FE as Frontend (Available Agents)
 
-  V->>B: POST /webhooks/vapi/{client_id}\n{type:"status-update", call.id, status, listenUrl, controlUrl}
-  B->>DB: Upsert Call + CallStatusEvent
-  B-->>W: broadcast call-upsert
-  W-->>F: call-upsert
-  F->>F: insert/update row
+    V->>BE: POST /webhooks (status-update: ringing)
+    BE->>DB: INSERT Call (Status=ringing)
+    BE->>DB: INSERT CallStatusEvent
+    BE->>WS: broadcast_dashboard(call)
+    WS-->>FE: { type: "call-upsert", status: "ringing" }
+    FE->>FE: Show Incoming Call notification / Toast
 ```
 
-### Transcript + end-of-call flow
+### 3. Status Update Flow
 ```mermaid
 sequenceDiagram
-  participant V as VAPI
-  participant B as Backend
-  participant DB as SQLite
-  participant W as WS /ws/dashboard
-  participant F as Frontend
+    participant V as vprod
+    participant BE as Backend
+    participant WS as WebSocket Manager
+    participant FE as Frontend
 
-  V->>B: POST transcript message
-  B->>DB: Append Call.live_transcript + CallStatusEvent
-  B-->>W: broadcast transcript-update
-  W-->>F: update open transcript modal
-
-  V->>B: POST end-of-call-report
-  B->>DB: Set status=ended, final_transcript, recording_url, summary
-  B-->>W: broadcast call-upsert (final flags)
-  W-->>F: render ended state (recording/transcript buttons)
+    V->>BE: POST /webhooks (status: in-progress)
+    BE->>DB: UPDATE Call (status=in-progress)
+    BE->>WS: broadcast_dashboard(call)
+    WS-->>FE: { type: "call-upsert", status: "in-progress" }
+    FE->>FE: Update LiveCallTile (Show "Live" Badge)
 ```
 
-### Force transfer flow
+### 4. Live Transcript Update Flow
 ```mermaid
 sequenceDiagram
-  participant F as Frontend
-  participant B as Backend
-  participant V as VAPI controlUrl
+    participant V as vprod
+    participant BE as Backend
+    participant WS as WebSocket Manager
+    participant FE as Frontend
 
-  F->>B: POST /api/{client_id}/calls/{call_id}/force-transfer\n{agent_phone_number, content}
-  B->>V: POST controlUrl {type:"transfer", destination:{type:"number", number}}
-  B->>B: Log CallStatusEvent(status="force-transfer")
-  B-->>F: {ok:true, control_url, forwarded_to}
+    V->>BE: POST /webhooks (type: transcript)
+    BE->>DB: UPDATE Call (APPEND to live_transcript)
+    BE->>WS: broadcast_transcript(segment)
+    WS-->>FE: { type: "transcript-update", append: "..." }
+    FE->>FE: LiveCallTile appends text & scrolls down
 ```
 
-## Suggested Next Steps
-- Add auth + tenant scoping for all routes and WebSockets, and tighten CORS.
-- Replace SQLite with Postgres for production;
-- Parameterize force-transfer agent number in "client-settings" UI/DB instead of the current hard-coded value.
-- Surface recording_url in UI (ended call action) and consider exposing a detail endpoint for download/stream.
-- Add automated tests around webhook handlers and WebSocket broadcasts.
+### 5. End of Call Report Flow
+```mermaid
+sequenceDiagram
+    participant V as vprod
+    participant BE as Backend
+    participant S as Supabase Storage
+    participant DB as Postgres
+    participant FE as Frontend
+
+    V->>BE: POST /webhooks (type: end-of-call-report)
+    BE->>BE: Process Summary & Recording URL
+    BE->>S: Download & Upload Recording
+    BE->>DB: UPDATE Call (status=ended, recording_url, final_transcript)
+    BE->>WS: broadcast_dashboard(call)
+    WS-->>FE: { type: "call-upsert", status: "ended" }
+    FE->>FE: Remove from Active View -> Move to History
+```
+
+### 6. Force Transfer Flow
+Allows a supervisor to take over an AI conversation.
+```mermaid
+sequenceDiagram
+    participant User
+    participant FE as Frontend
+    participant BE as Backend
+    participant V as vprod
+
+    User->>FE: Click "Take Over"
+    FE->>BE: POST /api/{client_id}/calls/{id}/force-transfer (Auth+JWT)
+    BE->>BE: Verify Token & Permissions
+    BE->>V: POST controlUrl { type: "transfer", dest: "+1..." }
+    V-->>BE: 200 OK
+    BE->>DB: Log Event "force-transfer"
+    BE-->>FE: 200 OK
+```
+
+---
+
+## Operational Notes
+- **Bucket Configuration**: Ensure your Supabase Storage bucket is named `recordings` (or update `.env`).
+- **CORS**: Currently set to `allow_origins=["*"]` for development. Restrict this in production.
+- **Binary Audio**: The Listen endpoint expects raw PCM data. If standardizing on a different format, update `LiveAudioStreamer.tsx` decoding logic.

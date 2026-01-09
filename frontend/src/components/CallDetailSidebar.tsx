@@ -3,13 +3,11 @@ import {
     X,
     Star,
     MessageSquare,
-    PhoneIncoming,
     Save,
     MoreVertical,
     Download,
     Gauge,
     Copy,
-    Mic,
     Play,
     Pause,
 } from "lucide-react";
@@ -45,7 +43,7 @@ interface CallDetailSidebarProps {
     onCallUpdated: (updatedCall: Call) => void;
 }
 
-import { LiveAudioStreamer } from "./LiveAudioStreamer";
+// import { LiveAudioStreamer } from "./LiveAudioStreamer"; // REMOVED
 
 export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onClose, onCallUpdated }) => {
     const [activeTab, setActiveTab] = useState<"transcript" | "progress" | "summary" | "notes">("transcript");
@@ -53,7 +51,6 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     const [feedbackRating, setFeedbackRating] = useState<number>(0);
     const [feedbackText, setFeedbackText] = useState("");
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-    const [takingOver, setTakingOver] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
     // Reset/Sync state when call changes or loads
@@ -105,8 +102,8 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
     if (!call) return null;
 
     // Determine status for styling
-    const status = (call.status || "").toLowerCase();
-    const isActive = ["in-progress", "ringing", "queued"].includes(status);
+    // const status = (call.status || "").toLowerCase();
+    // const isActive = ["in-progress", "ringing", "queued"].includes(status); // Removed isActive logic
 
     // Transcript content
     // Transcript content handled in render
@@ -153,28 +150,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
         }
     };
 
-    const handleTakeOver = async () => {
-        if (!confirm("Are you sure you want to take over this call? It will be transferred to your number.")) return;
-
-        setTakingOver(true);
-        try {
-            const res = await authenticatedFetch(`${backendUrl}/api/${call.client_id || 'demo-client'}/calls/${call.id}/force-transfer`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    agent_phone_number: "+16504848853", // Hardcoded for demo/MVP
-                    content: "Taking over call now."
-                })
-            });
-            if (!res.ok) throw new Error("Transfer failed");
-            alert("Transfer initiated!");
-        } catch (e) {
-            console.error(e);
-            alert("Failed to takeover call.");
-        } finally {
-            setTakingOver(false);
-        }
-    };
+    // handleTakeOver Removed
 
     return (
         <>
@@ -234,7 +210,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
                         <div className="space-y-0.5">
                             <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block">Duration</span>
                             <div className="text-[11px] font-mono text-slate-700">
-                                {isActive ? <DurationTimer call={call} /> : formatDuration(call.duration)}
+                                {formatDuration(call.duration)}
                             </div>
                         </div>
                         <div className="space-y-0.5">
@@ -250,7 +226,7 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
                 {/* AUDIO WIDGET */}
                 <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100">
-                    <AudioPlayer call={call} isActive={isActive} />
+                    <AudioPlayer call={call} />
                 </div>
 
 
@@ -425,63 +401,46 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 
                 {/* BOTTOM ACTIONS */}
                 <div className="p-5 bg-white border-t border-slate-200 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)] z-20">
-                    {isActive ? (
-                        <div className="flex gap-3">
-                            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-transparent">
-                                <Mic size={16} className="mr-2" />
-                                Whisper
-                            </Button>
-                            <Button
-                                variant="outline"
-                                className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
-                                onClick={handleTakeOver}
-                                disabled={takingOver}
-                            >
-                                <PhoneIncoming size={16} className="mr-2" />
-                                {takingOver ? "Transferring..." : "Take Over"}
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex gap-3">
-                            <Popover open={isFeedbackOpen} onOpenChange={setIsFeedbackOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-transparent">
-                                        <MessageSquare size={16} className="mr-2" />
-                                        Feedback
+                    {/* Live Controls Removed */}
+                    <div className="flex gap-3">
+                        <Popover open={isFeedbackOpen} onOpenChange={setIsFeedbackOpen}>
+                            <PopoverTrigger asChild>
+                                <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-transparent">
+                                    <MessageSquare size={16} className="mr-2" />
+                                    Feedback
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80 p-0" align="center" sideOffset={5}>
+                                <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                                    <h4 className="font-semibold text-slate-900 text-sm">Rate Call Performance</h4>
+                                    <p className="text-xs text-slate-500 mt-0.5">Help improve the agent by rating this interaction.</p>
+                                </div>
+                                <div className="p-4 flex flex-col gap-4">
+                                    <div className="flex justify-center gap-2">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                            <button
+                                                key={star}
+                                                onClick={() => setFeedbackRating(star)}
+                                                className={`transition-all hover:scale-110 p-1 ${feedbackRating >= star ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
+                                                title={`${star} Star${star > 1 ? 's' : ''}`}
+                                            >
+                                                <Star size={28} fill={feedbackRating >= star ? "currentColor" : "none"} />
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <textarea
+                                        value={feedbackText}
+                                        onChange={(e) => setFeedbackText(e.target.value)}
+                                        className="w-full text-xs p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none h-24 placeholder:text-slate-400"
+                                        placeholder="Add specific comments about agent performance..."
+                                    />
+                                    <Button size="sm" onClick={handleSaveFeedback} disabled={feedbackRating === 0} className="w-full bg-blue-600 hover:bg-blue-700">
+                                        Save Feedback
                                     </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-80 p-0" align="center" sideOffset={5}>
-                                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                                        <h4 className="font-semibold text-slate-900 text-sm">Rate Call Performance</h4>
-                                        <p className="text-xs text-slate-500 mt-0.5">Help improve the agent by rating this interaction.</p>
-                                    </div>
-                                    <div className="p-4 flex flex-col gap-4">
-                                        <div className="flex justify-center gap-2">
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <button
-                                                    key={star}
-                                                    onClick={() => setFeedbackRating(star)}
-                                                    className={`transition-all hover:scale-110 p-1 ${feedbackRating >= star ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
-                                                    title={`${star} Star${star > 1 ? 's' : ''}`}
-                                                >
-                                                    <Star size={28} fill={feedbackRating >= star ? "currentColor" : "none"} />
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <textarea
-                                            value={feedbackText}
-                                            onChange={(e) => setFeedbackText(e.target.value)}
-                                            className="w-full text-xs p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none h-24 placeholder:text-slate-400"
-                                            placeholder="Add specific comments about agent performance..."
-                                        />
-                                        <Button size="sm" onClick={handleSaveFeedback} disabled={feedbackRating === 0} className="w-full bg-blue-600 hover:bg-blue-700">
-                                            Save Feedback
-                                        </Button>
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                    )}
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    </div>
                 </div>
 
             </div >
@@ -490,22 +449,16 @@ export const CallDetailSidebar: React.FC<CallDetailSidebarProps> = ({ call, onCl
 };
 
 // AUDIO PLAYER SUBCOMPONENT
-const AudioPlayer: React.FC<{ call: Call, isActive: boolean }> = ({ call, isActive }) => {
-    // If ended, show standard recorded player
-    if (!isActive) {
-        if (call.recording_url) {
-            return <RecordedAudioPlayer call={call} />;
-        }
-        return (
-            <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm opacity-60">
-                <div className="text-xs text-slate-400 italic">No recording available.</div>
-            </div>
-        );
+const AudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
+    // Standard recorded player
+    if (call.recording_url) {
+        return <RecordedAudioPlayer call={call} />;
     }
-
-    // LIVE AUDIO PLAYER
-    // LIVE AUDIO PLAYER
-    return <LiveAudioStreamer call={call} className="w-full" showVolumeSlider={true} compact={false} />;
+    return (
+        <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3 shadow-sm opacity-60">
+            <div className="text-xs text-slate-400 italic">No recording available.</div>
+        </div>
+    );
 };
 
 const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
@@ -726,28 +679,7 @@ const RecordedAudioPlayer: React.FC<{ call: Call }> = ({ call }) => {
 };
 
 
-// HELPER COMPONENTS
-const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
-    const [elapsed, setElapsed] = useState(0);
-
-    useEffect(() => {
-        if (!call.started_at) return;
-
-        const updateTimer = () => {
-            const start = new Date(call.started_at!).getTime();
-            const now = Date.now();
-            setElapsed(Math.floor((now - start) / 1000));
-        };
-
-        // Call immediately to avoid initial 0:00 display
-        updateTimer();
-
-        const interval = setInterval(updateTimer, 1000);
-        return () => clearInterval(interval);
-    }, [call.started_at]);
-
-    return <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>;
-};
+// DurationTimer REMOVED
 
 const formatDuration = (seconds?: number | null) => {
     if (!seconds) return "0:00";

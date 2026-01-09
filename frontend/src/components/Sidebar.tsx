@@ -32,6 +32,7 @@ import {
 } from "./ui/tooltip";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useActiveCalls } from "../context/ActiveCallContext";
 
 interface SidebarProps {
     user?: {
@@ -45,11 +46,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+    const { activeCallCount } = useActiveCalls();
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
         window.location.href = "/";
     };
+
+    // Subscribe to global active call count
+    // We need to move navItems inside the component to access the hook OR pass it in
+    // Moving inside is easiest.
+
+    // BUT first, let's verify if we missed the imports for the Context in the Sidebar file.
+    // I need to import useActiveCalls first.
+
+    // Let's defer this specific edit until I add the import.
+    // Just returning original for now to switch to multi-step.
 
     const navItems = [
         {
@@ -63,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
             icon: Phone,
             path: "/active-calls",
             action: () => navigate("/active-calls"),
+            badge: activeCallCount > 0 ? activeCallCount : undefined
         },
         {
             title: "Call Log",
@@ -139,6 +152,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ user }) => {
                                     >
                                         <item.icon size={20} />
                                         {!isCollapsed && <span>{item.title}</span>}
+                                        {!isCollapsed && (item as any).badge && (
+                                            <span className="ml-auto bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                                                {(item as any).badge}
+                                            </span>
+                                        )}
                                     </Button>
                                 </TooltipTrigger>
                                 {isCollapsed && (

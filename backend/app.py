@@ -19,7 +19,7 @@ from database.connection import init_db, engine
 from database.models import Client
 
 # Import routers
-from routers import webhooks, calls, debug, websockets
+from routers import webhooks, calls, websockets
 
 
 @asynccontextmanager
@@ -104,16 +104,9 @@ def read_root():
 def health():
     return {"status": "ok"}
 
-# @app.get("/api/recordings/{filename}")
-# async def get_recording(filename: str, redirect: bool = True):
-#    """
-#    DEPRECATED / REMOVED FOR SECURITY.
-#    Use /api/calls/{call_id}/recording instead.
-#    """
-#    raise HTTPException(status_code=410, detail="This endpoint is deprecated. Use the secure /api/calls/{id}/recording endpoint.")
+
 
 # --- Register Routers --- #
 app.include_router(webhooks.router)
 app.include_router(calls.router)
-app.include_router(debug.router)
 app.include_router(websockets.router)

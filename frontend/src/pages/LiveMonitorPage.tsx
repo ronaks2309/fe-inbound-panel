@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import type { Call } from "../components/CallDashboard";
 import { Layout } from "../components/Layout";
 import { Button } from "../components/ui/button";
+import { useActiveCalls } from "../context/ActiveCallContext";
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -48,9 +49,9 @@ export const LiveMonitorPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [userInfo, setUserInfo] = useState<any>(null);
-    const [isWsConnected, setIsWsConnected] = useState(false); // NEW: Track WS connection status
-    const wsRef = useRef<WebSocket | null>(null);
-    const retryTimeoutRef = useRef<number | null>(null);
+    const subscribedCallIdsRef = useRef<Set<string>>(new Set());
+
+    const { sendMessage, subscribe, isWsConnected } = useActiveCalls();
 
     // Fetch User Info (for Layout)
     useEffect(() => {
@@ -127,125 +128,101 @@ export const LiveMonitorPage: React.FC = () => {
     };
 
     useEffect(() => {
+        if (!userInfo?.id) return;
+
+        // Initial fetch call
         fetchActiveCalls();
 
-        // WebSocket Setup
-        const connectWs = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return;
+        // Clear subscriptions ref on mount/remount
+        subscribedCallIdsRef.current.clear();
 
-            const wsUrl = backendUrl.replace(/^http/, "ws") + `/ws/dashboard?token=${session.access_token}`;
-            const ws = new WebSocket(wsUrl);
-            wsRef.current = ws;
+        // Subscribe to real-time events from Global Context
+        const unsubscribe = subscribe((msg: any) => {
+            if (msg.type === 'call-upsert') {
+                const rawCall = msg.data || msg.call;
+                if (!rawCall) return;
 
-            ws.onopen = () => {
-                console.log("Live Monitor WS Connected");
-                setIsWsConnected(true);
-            };
+                const updatedCall = normalizeCall(rawCall);
 
-            ws.onmessage = (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
+                setCalls(prev => {
+                    const existsIndex = prev.findIndex(c => c.id === updatedCall.id);
 
-                    if (msg.type === 'call-upsert') {
-                        const rawCall = msg.data || msg.call;
-                        if (!rawCall) return;
-
-                        const updatedCall = normalizeCall(rawCall);
-
-                        setCalls(prev => {
-                            const existsIndex = prev.findIndex(c => c.id === updatedCall.id);
-
-                            // Re-calculate active status using existing data if needed
-                            let effectiveStatus = updatedCall.status;
-                            if (!effectiveStatus && existsIndex !== -1) {
-                                effectiveStatus = prev[existsIndex].status;
-                            }
-                            const isCallActive = ['in-progress', 'in_progress', 'ringing', 'queued'].includes((effectiveStatus || '').toLowerCase());
-
-                            if (isCallActive) {
-                                if (existsIndex === -1) {
-                                    // NEW active call -> Subscribe!
-                                    console.log(`[WS DEBUG] New Active Call ${updatedCall.id}. StartedAt: ${updatedCall.started_at}`);
-                                    if (ws.readyState === WebSocket.OPEN) {
-                                        console.log("Subscribing to new call:", updatedCall.id);
-                                        ws.send(JSON.stringify({ type: 'subscribe', callId: updatedCall.id }));
-                                    }
-                                    return [updatedCall, ...prev];
-                                } else {
-                                    // Update existing - Preserve fields if missing in update (partial updates)
-                                    const existing = prev[existsIndex];
-                                    const mergedCall: Call = {
-                                        ...existing,
-                                        ...updatedCall,
-                                        // Critical: Protect against partial updates wiping these out
-                                        started_at: updatedCall.started_at || existing.started_at,
-                                        live_transcript: updatedCall.live_transcript || existing.live_transcript,
-                                        final_transcript: updatedCall.final_transcript || existing.final_transcript,
-                                        summary: updatedCall.summary || existing.summary,
-                                        notes: updatedCall.notes || existing.notes,
-                                        phone_number: updatedCall.phone_number || existing.phone_number,
-                                        username: updatedCall.username || existing.username,
-                                        status: effectiveStatus || existing.status
-                                    };
-
-                                    // console.log(`[WS DEBUG] Updated ${updatedCall.id}. Merged StartedAt: ${mergedCall.started_at}`);
-
-                                    const newCalls = [...prev];
-                                    newCalls[existsIndex] = mergedCall;
-                                    return newCalls;
-                                }
-                            } else {
-                                // Not active anymore -> Remove
-                                return prev.filter(c => c.id !== updatedCall.id);
-                            }
-                        });
-                    } else if (msg.type === 'transcript-update') {
-                        setCalls(prev => prev.map(c => {
-                            if (c.id === msg.callId) {
-                                return {
-                                    ...c,
-                                    live_transcript: msg.fullTranscript,
-                                    status: msg.status || c.status
-                                };
-                            }
-                            return c;
-                        }));
+                    // Re-calculate active status using existing data if needed
+                    let effectiveStatus = updatedCall.status;
+                    if (!effectiveStatus && existsIndex !== -1) {
+                        effectiveStatus = prev[existsIndex].status;
                     }
+                    const isCallActive = ['in-progress', 'in_progress', 'ringing', 'queued'].includes((effectiveStatus || '').toLowerCase());
 
-                } catch (e) {
-                    console.error("WS Message Parse Error", e);
-                }
-            };
+                    if (isCallActive) {
+                        if (existsIndex === -1) {
+                            // NEW active call -> Subscribe!
+                            if (isWsConnected) {
+                                if (!subscribedCallIdsRef.current.has(updatedCall.id)) {
+                                    console.log("Subscribing to new call:", updatedCall.id);
+                                    sendMessage({ type: 'subscribe', callId: updatedCall.id });
+                                    subscribedCallIdsRef.current.add(updatedCall.id);
+                                }
+                            }
+                            return [updatedCall, ...prev];
+                        } else {
+                            // Update existing
+                            const existing = prev[existsIndex];
+                            const mergedCall: Call = {
+                                ...existing,
+                                ...updatedCall,
+                                started_at: updatedCall.started_at || existing.started_at,
+                                live_transcript: updatedCall.live_transcript || existing.live_transcript,
+                                final_transcript: updatedCall.final_transcript || existing.final_transcript,
+                                summary: updatedCall.summary || existing.summary,
+                                notes: updatedCall.notes || existing.notes,
+                                phone_number: updatedCall.phone_number || existing.phone_number,
+                                username: updatedCall.username || existing.username,
+                                status: effectiveStatus || existing.status
+                            };
+                            const newCalls = [...prev];
+                            newCalls[existsIndex] = mergedCall;
+                            return newCalls;
+                        }
+                    } else {
+                        // Not active anymore -> Remove
+                        return prev.filter(c => c.id !== updatedCall.id);
+                    }
+                });
+            } else if (msg.type === 'transcript-update') {
+                setCalls(prev => prev.map(c => {
+                    if (c.id === msg.callId) {
+                        return {
+                            ...c,
+                            live_transcript: msg.fullTranscript,
+                            status: msg.status || c.status
+                        };
+                    }
+                    return c;
+                }));
+            }
+        });
 
-            ws.onclose = () => {
-                console.log("WS Closed, retrying...");
-                setIsWsConnected(false);
-                retryTimeoutRef.current = setTimeout(connectWs, 3000); // number is correct for browser
-            };
-        };
-
-        connectWs();
+        // Loop through existing calls in state that we might need to subscribe to
+        // (In case we re-mounted and context is already connected)
+        // Note: The context dedupes subscriptions somewhat, but good to be explicit.
 
         return () => {
-            wsRef.current?.close();
-            if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+            unsubscribe();
         };
-    }, []); // Run once on mount
+    }, [userInfo, isWsConnected]); // Re-run if Connection status changes so we can resubscribe if needed
 
-    // Separate effect to subscribe to initial calls once WS is open
+    // If context connects/reconnects, ensure we resubscribe to calls on screen
     useEffect(() => {
-        const ws = wsRef.current;
-        // Fix Race Condition: Depend on isWsConnected so this runs even if calls loaded BEFORE ws opened
-        if (ws && isWsConnected && calls.length > 0) {
-            calls.forEach(c => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    console.log("Subscribing to existing active call:", c.id);
-                    ws.send(JSON.stringify({ type: 'subscribe', callId: c.id }));
+        if (isWsConnected && calls.length > 0) {
+            calls.forEach(call => {
+                if (!subscribedCallIdsRef.current.has(call.id)) {
+                    sendMessage({ type: 'subscribe', callId: call.id });
+                    subscribedCallIdsRef.current.add(call.id);
                 }
             });
         }
-    }, [calls.length, isWsConnected]); // Added isWsConnected dependency
+    }, [isWsConnected, calls]);
 
     // Handlers
     const handleWhisper = (_callId: string) => {

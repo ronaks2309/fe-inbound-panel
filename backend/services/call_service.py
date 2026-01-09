@@ -8,6 +8,9 @@ from sqlmodel import Session
 from database.models import Call, CallStatusEvent
 from services.websocket_manager import manager
 from services.supabase_service import get_user_by_id, supabase
+import logging
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def to_iso_utc(dt: Optional[datetime]) -> Optional[str]:
@@ -78,7 +81,7 @@ class CallService:
         created_at = call_data.get("createdAt")
 
         if not call_id:
-            print("[CallMark AI][status-update] Missing call.id, ignoring.")
+            logger.warning("[CallMark AI][status-update] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract phone number from various possible fields
@@ -114,7 +117,7 @@ class CallService:
                 # Vapi sends ISO format, usually with Z. handling replace just in case.
                 call.started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
             except Exception as e:
-                print(f"Error parsing startedAt: {e}")
+                logger.error(f"Error parsing startedAt: {e}")
 
         # Capture createdAt if present
         created_at_str = call_data.get("createdAt")
@@ -122,7 +125,7 @@ class CallService:
             try:
                 call.created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
             except Exception as e:
-                print(f"Error parsing createdAt: {e}")
+                logger.error(f"Error parsing createdAt: {e}")
 
         # Update user_id if provided
         if user_id:
@@ -143,7 +146,7 @@ class CallService:
                         if username:
                             call.username = username
                 except Exception as e:
-                    print(f"Failed to resolve username for {user_id}: {e}")
+                    logger.warning(f"Failed to resolve username for {user_id}: {e}")
 
         now = datetime.utcnow()
         # Mark as ended if status indicates completion
@@ -213,8 +216,9 @@ class CallService:
     
         call_data = message.get("call", {})
         call_id = call_data.get("id")
+        call_id = call_data.get("id")
         if not call_id:
-            print("[CallMark AI][transcript] Missing call.id, ignoring.")
+            logger.warning("[CallMark AI][transcript] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         raw_text = (message.get("transcript")) or ""
@@ -341,8 +345,9 @@ class CallService:
         """
         call_data = message.get("call", {}) or {}
         call_id = call_data.get("id")
+        call_id = call_data.get("id")
         if not call_id:
-            print("[CallMark AI][end-of-call-report] Missing call.id, ignoring.")
+            logger.warning("[CallMark AI][end-of-call-report] Missing call.id, ignoring.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract call info
@@ -402,15 +407,15 @@ class CallService:
                                 )
                                 # Store FILENAME only (to be signed on retrieval)
                                 recording_url = filename 
-                                print(f"[end-of-call] Uploaded recording to Supabase: {filename}")
+                                logger.info(f"[end-of-call] Uploaded recording to Supabase: {filename}")
                             except Exception as sup_err:
-                                print(f"[end-of-call] Supabase upload error: {sup_err}")
+                                logger.error(f"[end-of-call] Supabase upload error: {sup_err}")
                         else:
-                            print("[end-of-call] Supabase credentials missing. Skipping upload.")
+                            logger.warning("[end-of-call] Supabase credentials missing. Skipping upload.")
                     else:
-                        print(f"[end-of-call] Failed to download recording: {resp.status_code}")
+                        logger.error(f"[end-of-call] Failed to download recording: {resp.status_code}")
             except Exception as e:
-                print(f"[end-of-call] Error processing recording: {e}")
+                logger.error(f"[end-of-call] Error processing recording: {e}")
 
         summary_text = message.get("summary") or analysis.get("summary")
         summary = {"summary": summary_text}
@@ -445,7 +450,7 @@ class CallService:
         structured_outputs = artifact.get("structuredOutputs") or {}
         
         if structured_outputs:
-            print(f"[CallService] Found structuredOutputs: {structured_outputs.keys()}")
+            logger.info(f"[CallService] Found structuredOutputs: {structured_outputs.keys()}")
             
             # structuredOutputs is a dict of UUID -> Object
             for output in structured_outputs.values():
@@ -461,7 +466,7 @@ class CallService:
                 elif name == "customer sentiment" or "sentiment" in name:
                     sentiment = result
         else:
-            print(f"[CallService] No structuredOutputs found in artifact. Artifact keys: {artifact.keys()}")
+            logger.info(f"[CallService] No structuredOutputs found in artifact. Artifact keys: {artifact.keys()}")
 
         if sentiment:
             call.sentiment = sentiment
@@ -568,8 +573,9 @@ class CallService:
         """
         call_data = message.get("call", {})
         call_id = call_data.get("id")
+        call_id = call_data.get("id")
         if not call_id:
-            print("[CallMark AI][generic] Missing call.id. Just logging payload.")
+            logger.warning("[CallMark AI][generic] Missing call.id. Just logging payload.")
             return {"ok": False, "error": "missing call.id"}
 
         # Extract call info from various possible field names

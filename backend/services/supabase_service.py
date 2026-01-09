@@ -4,12 +4,13 @@ from dotenv import load_dotenv
 from supabase import create_client, Client, ClientOptions
 
 # Load environment variables
-load_dotenv()
+# Load environment variables once
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
-# Support various naming conventions
+# Service Role Key for Admin operations (Bypasses RLS)
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("supabase_service_role_key") or os.getenv("SUPABASE_KEY")
+# Anon Key for User Impersonation (Respects RLS)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
 supabase: Client | None = None

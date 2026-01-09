@@ -1,48 +1,75 @@
 # Copilot Instructions for fe-inbound-panel
 
-## Project snapshot
-- Stack: FastAPI + SQLModel + SQLite backend; React + Vite + TypeScript + Tailwind v4 frontend.
-- Key paths: 
-  - Backend: `backend/app.py`, `backend/routers/*.py`, `backend/services/*.py`, `backend/database/models.py`.
-  - Frontend: `frontend/src/components/CallDashboard.tsx` (main), `frontend/src/components/*Modal.tsx`.
-- Default dev endpoints: REST `http://localhost:8000`, dashboard WS `ws://localhost:8000/ws/dashboard`, fake audio WS `ws://localhost:8000/ws/fake-audio`.
+## Project Snapshot
+- **Stack**: 
+  - **Backend**: FastAPI + SQLModel + **PostgreSQL (Supabase)**.
+  - **Frontend**: React + Vite + TypeScript + **Tailwind v4**.
+  - **Auth**: Supabase Auth (JWT) + Row Level Security (RLS).
+- **Key Backend Paths**:
+  - `backend/app.py`: Entry point.
+  - `backend/database/models.py`: **Source of Truth** for Data Models.
+  - `backend/dependencies/auth.py`: Handles RLS context (`SET LOCAL role...`).
+  - `backend/routers/*.py`: `webhooks`, `calls`, `websockets`.
+  - `backend/services/*.py`: `call_service`, `websocket_manager`, `supabase_service`.
+- **Key Frontend Paths**:
+  - `frontend/src/context/ActiveCallContext.tsx`: **Singleton** WebSocket manager & Global State.
+  - `frontend/src/components/LiveCallTile.tsx`: Active call card + Audio Streamer.
+  - `frontend/src/components/Sidebar.tsx`: Navigation + Active Call Badge.
+  - `frontend/src/pages/LiveMonitorPage.tsx`: Main active calls dashboard.
 
-## Getting started (local dev)
-- Backend: `cd backend && python -m venv .venv && .venv\Scripts\activate && pip install fastapi "uvicorn[standard]" sqlmodel sqlalchemy httpx`.
-- Run backend: `uvicorn app:app --reload --port 8000` (auto-creates SQLite `backend/vapi_dashboard.db` and seeds `demo-client`).
-- Frontend: `cd frontend && npm install` (uses Vite). Ensure `.env` has `VITE_BACKEND_URL=http://localhost:8000`. Start with `npm run dev`.
-- Demo data: POST to `/api/debug/create-test-call/demo-client` to seed calls; WebSocket pushes will update the UI live.
+## Getting Started (Local Dev)
+### Backend
+1. `cd backend`
+2. `source .venv/bin/activate` (or Windows equivalent)
+3. Ensure `.env` has:
+   - `DATABASE_URL` (Postgres connection string)
+   - `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY`
+4. Run: `python -m uvicorn app:app --reload --port 8000`
+5. Docs: `http://localhost:8000/docs` (Basic Auth defaults: admin/admin).
 
-## Data + contracts
-- Models (`backend/database/models.py`):
-  - Client{id, name, created_at}
-  - Call{id, client_id, phone_number?, status?, started_at?, ended_at?, listen_url?, control_url?, live_transcript?, final_transcript?, recording_url?, summary JSON?, cost?, created_at, updated_at}
-  - CallStatusEvent{id, call_id, client_id, status, payload JSON?, created_at}
-- Core routes (`backend/routers/*.py`):
-  - GET `/api/{client_id}/calls` list calls (lightweight).
-  - GET `/api/calls/{call_id}` call detail (full).
-  - GET `/api/recordings/{filename}` serve recording file.
-  - POST `/api/debug/create-test-call/{client_id}` upsert fake call.
-  - POST `/webhooks/vapi/{client_id}` dispatcher for VAPI payloads.
-  - WS `/ws/dashboard` registers dashboards; emits `hello` + live events.
-  - WS `/ws/fake-audio` sends hello then binary chunks for 10s.
-- WebSocket message shapes sent to UI:
-  - `call-upsert`: `{ type: "call-upsert", clientId, call: { id, status, phoneNumber, startedAt, endedAt, listenUrl, finalTranscript?, liveTranscript?, recordingUrl?, hasTranscript?, hasFinalTranscript?, hasLiveTranscript?, hasRecording?, hasListenUrl? } }`.
-  - `transcript-update`: `{ type: "transcript-update", clientId, callId, append?, fullTranscript }`.
+### Frontend
+1. `cd frontend`
+2. `npm install`
+3. Ensure `.env` has:
+   - `VITE_BACKEND_URL=http://localhost:8000`
+   - `VITE_SUPABASE_URL` & `VITE_SUPABASE_ANON_KEY`
+4. Run: `npm run dev`
 
-## Frontend behavior (CallDashboard)
-- On mount: fetches `GET /api/demo-client/calls`, normalizes snake_case to camelCase, sets `hasTranscript/hasLiveTranscript/hasRecording` flags.
-- WebSocket: connects to `/ws/dashboard`; merges updates.
-- Modals: `TranscriptModal`, `ListenModal` (audio streaming), `RecordingModal` (playback).
-- Actions: force transfer uses hardcoded agent `+16504848853`.
+### User Creation
+- Use `python -m services.create_user` to create new tenants/users with proper profiles.
 
-## Copilot guidance (backend)
-- Always route through `get_session` dependency.
-- Validate `call_id` early.
-- Broadcast with `manager.broadcast_dashboard` using updated shapes.
-- Keep SQLModel models source-of-truth.
+## Data Models (`backend/database/models.py`)
+- **Client**: `{ id (PK), name, created_at }`
+- **Profile**: `{ id (PK/UUID), client_id, role, username, display_name }` - Links Auth to Client.
+- **Call**: 
+  - `{ id (PK), client_id, phone_number, status, started_at, ended_at, duration, cost, user_id, username }`
+  - **Live Data**: `{ listen_url, control_url, live_transcript (JSON Array) }`
+  - **Post-Call**: `{ recording_url, final_transcript, summary (JSON), sentiment, disposition, notes }`
+- **CallStatusEvent**: `{ id, call_id, client_id, user_id, status, payload (JSON) }`
 
-## Copilot guidance (frontend)
-- Preserve `Call` type shape (match backend `CallDetailResponse`).
-- Use separate Modal components for cleanliness.
-- Use Tailwind v4.
+## Core Routes & WebSocket Protocol
+- **REST**:
+  - `POST /webhooks/vprod/{client_id}`: VPROD Event Ingest.
+  - `GET /api/{client_id}/calls`: List calls (Filtered by RLS).
+  - `POST /api/{client_id}/calls/{call_id}/force-transfer`: Supervisor Take Owner.
+- **WebSockets**:
+  - **`/ws/dashboard?token={jwt}`**: 
+    - **In**: `{ type: "ping" }`
+    - **Out**: 
+      - `call-upsert`: `{ type: "call-upsert", call: { ... } }` (Full Call Object)
+      - `transcript-update`: `{ type: "transcript-update", callId, transcript: [...] }`
+  - **`/ws/listen/{call_id}?token={jwt}`**:
+    - **Out**: Binary PCM 16-bit audio chunks (for Web Audio API).
+
+## Copilot Guidance (Backend)
+1. **Security First**: ALWAYS use `Depends(get_secure_session)` for DB access to enforce RLS. Never use raw `Session(engine)` in routers unless absolutely necessary (e.g., public webhooks).
+2. **WebSockets**: Use `BroadcastManager` (`backend/services/websocket_manager.py`) for all push updates. Ensure messages are filtered by `tenant_id`.
+3. **Supabase**: Use `supabase_service.py` for Storage operations. Use `create_user.py` logic for user management.
+
+## Copilot Guidance (Frontend)
+1. **State Management**: 
+   - Use `useActiveCalls()` for **Global** state (Badge counts, Connection status).
+   - Use Local State (`useState`) for UI-specifics (Modals, filters).
+2. **Styling**: Use **Tailwind v4** semantics. Use `clsx` or `cn` helper for class merging.
+3. **Audio**: `LiveAudioStreamer.tsx` expects raw PCM data. Do not change decoding logic unless backend encoding changes.
+4. **Components**: Keep `LiveCallTile` focused on the *individual* call state.
