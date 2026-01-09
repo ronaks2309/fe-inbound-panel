@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 // Define the shape of our context
 interface ActiveCallContextType {
@@ -22,6 +23,7 @@ export const useActiveCalls = () => useContext(ActiveCallContext);
 export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [activeCallCount, setActiveCallCount] = useState(0);
     const [isWsConnected, setIsWsConnected] = useState(false);
+    const navigate = useNavigate();
 
     // Event Listeners for consumers (like LiveMonitorPage)
     const listenersRef = useRef<Set<(msg: any) => void>>(new Set());
@@ -89,19 +91,6 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     listenersRef.current.forEach(listener => listener(msg));
 
                     // 2. Handle Global Badge / Notifications (Internal Logic)
-                    // We expect 'call-upsert' messages for active calls
-                    // OR a full list if the backend supported it, but currently it sends upserts.
-
-                    // Actually, for a pure COUNT, we need to know the full state. 
-                    // The current /ws/dashboard endpoint sends individual call updates.
-                    // It doesn't send a "list" on connect unless the backend is modified to do so.
-                    // However, usually detailed "dashboard" sockets send the initial state.
-
-                    // CAUTION: If the backend DOESN'T send the full list on connect, 
-                    // our count will start at 0 and only increment as updates come in.
-                    // This is a limitation of the current backend specific to the user's setup.
-                    // Ideally, we'd fetch the initial list via REST then subscribe.
-
                     if (msg.type === "call-upsert") {
                         const call = msg.call;
                         const status = (call.status || "").toLowerCase();
@@ -109,10 +98,6 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         const callId = String(call.id);
 
                         setActiveCallCount(() => {
-                            // This logic is tricky without a full list state.
-                            // If we don't store the list, we can't know the exact count if we miss removals.
-                            // But for now, let's try to track unique active IDs in the ref.
-
                             const known = knownCallIdsRef.current;
 
                             if (isActive) {
@@ -121,12 +106,15 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
                                     // TRIGGER NOTIFICATION for NEW call
                                     const caller = call.phoneNumber || call.phone_number || "Unknown Caller";
+                                    // Only notify if we haven't just fetched it (simple heuristic or acceptable dup for now)
+                                    // Actually, if we fetch initial state, we add them to 'known'. 
+                                    // So this only fires if it wasn't known.
                                     toast.success(`Incoming Call from ${caller}`, {
                                         description: "A new call has started.",
                                         duration: 5000,
                                         action: {
                                             label: "View",
-                                            onClick: () => window.location.href = "/active-calls"
+                                            onClick: () => navigate("/active-calls")
                                         }
                                     });
 
@@ -159,14 +147,51 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             };
         };
 
+        const fetchInitialState = async (token: string, user: any) => {
+            try {
+                const metadata = user.user_metadata || {};
+                const tenantId = metadata.tenant_id || "demo-client";
+                const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
+                let url = `${backendUrl}/api/${tenantId}/calls?status=in-progress,queued,ringing`;
+                if (metadata.role === 'user') {
+                    url += `&user_id=${user.id}`;
+                }
+
+                const res = await fetch(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+
+                if (res.ok) {
+                    const rawCalls = await res.json();
+
+                    // Filter for strictly active just in case API returns more
+                    // (Though query param status=... should handle it)
+                    const activeCalls = rawCalls.filter((c: any) =>
+                        ['in-progress', 'ringing', 'queued'].includes((c.status || '').toLowerCase())
+                    );
+
+                    // Sync Ref and State
+                    const known = knownCallIdsRef.current;
+                    activeCalls.forEach((c: any) => {
+                        known.add(String(c.id));
+                    });
+
+                    setActiveCallCount(known.size);
+                }
+            } catch (e) {
+                console.error("Failed to fetch initial active calls", e);
+            }
+        };
+
         // Listen for Auth Changes to Connect/Disconnect
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            // Note: onAuthStateChange fires SIGNED_IN for initial session too, 
-            // so we don't strictly need the manual getSession() call below if we trust this fires.
-            // But sometimes it doesn't fire immediately on mount if session is cached.
-
             if (event === 'SIGNED_IN' && session?.access_token) {
                 connectWs(session.access_token);
+                // Also fetch initial state
+                fetchInitialState(session.access_token, session.user);
             } else if (event === 'SIGNED_OUT') {
                 if (wsRef.current) {
                     wsRef.current.onclose = null;
@@ -177,16 +202,15 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 knownCallIdsRef.current.clear();
                 setIsWsConnected(false);
             } else if (event === 'TOKEN_REFRESHED' && session?.access_token) {
-                // Ideally transparent, but if token changes we might want to reconnect?
-                // For now, let's assume WS stays valid until it dies.
+                // optionally reconnect or re-fetch
             }
         });
 
-        // Initial check - Only connect if we suspect onAuthStateChange won't fire OR just to be safe.
-        // But we must debounce it against the listener.
+        // Initial check 
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session?.access_token) {
                 connectWs(session.access_token);
+                fetchInitialState(session.access_token, session.user);
             }
         });
 
