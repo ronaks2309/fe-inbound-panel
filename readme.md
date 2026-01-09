@@ -23,7 +23,7 @@ Backend
 2) python -m venv .venv && .\.venv\Scripts\activate
 3) pip install fastapi uvicorn sqlmodel httpx
 4) python -m uvicorn app:app --reload --port 8000
-Notes: Run from `backend/` directory. Startup seeds Client(id="demo-client"). DB lives at `backend/database/calls_dashboard.db`. Delete the file to reset local data.
+Notes: Run from `backend/` directory. Startup seeds Client(id="demo-client"). DB is managed via `DATABASE_URL` (PostgreSQL).
 
 Frontend
 1) cd frontend
@@ -38,7 +38,7 @@ Frontend
 - Frontend: 
   - `VITE_BACKEND_URL`: Base URL for backend HTTP + WS (default: `http://localhost:8000`).
 - Backend:
-  - `DATABASE_URL`: SQLModel database URL (default: `sqlite:///./vapi_dashboard.db`).
+  - `DATABASE_URL`: SQLModel database URL (e.g. `postgresql://user:pass@host:5432/db`).
   - `SUPABASE_URL`: Supabase project URL for Auth/Storage.
   - `SUPABASE_KEY`: Supabase Service Role Key (for storage signing).
   - `SUPABASE_BUCKET`: Storage bucket name (default: `recordings`).
@@ -219,7 +219,7 @@ flowchart TD
   subgraph Backend[FastAPI]
     API[/REST + Webhooks/]
     WS[/WS /ws/dashboard/]
-    DB[(SQLite/SQLModel)]
+    DB[(PostgreSQL/SQLModel)]
   end
 
   subgraph Frontend[React Dashboard]
@@ -243,7 +243,7 @@ flowchart TD
 sequenceDiagram
   participant V as VAPI
   participant B as Backend
-  participant DB as SQLite
+  participant DB as PostgreSQL
   participant W as WS /ws/dashboard
   participant F as Frontend
 

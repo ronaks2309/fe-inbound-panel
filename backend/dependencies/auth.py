@@ -16,17 +16,7 @@ from sqlalchemy import text
 
 security = HTTPBearer()
 
-class UserContext(BaseModel):
-    id: str
-    client_id: str
-    role: str
-    username: Optional[str] = None
-    display_name: Optional[str]
-    token: Optional[str] = None
-
-    @property
-    def is_admin(self) -> bool:
-        return self.role == "admin"
+from .auth_utils import UserContext, authenticate_user
 
 def get_current_user(
     creds: HTTPAuthorizationCredentials = Depends(security),
@@ -39,41 +29,20 @@ def get_current_user(
             detail="Auth service unavailable"
         )
 
-    # 1. Verify JWT with Supabase Auth
     try:
-        # get_user validates the token signature and expiration with the auth server
-        user_response = supabase.auth.get_user(token)
-        user = user_response.user
-        if not user:
-            raise ValueError("No user found")
-    except Exception as e:
-        print(f"Auth error: {e}")
+        return authenticate_user(session, token)
+    except ValueError as e:
+        # Map internal errors to HTTP exceptions
+        if "profile not found" in str(e).lower():
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(e)
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    # 2. Strict DB Check: Get Profile
-    # We use the DB session to be sure (bypassing potentially stale JWT claims if we used them)
-    profile = session.get(Profile, user.id)
-
-    if not profile:
-        # Fail closed
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User profile not found. Access denied."
-        )
-
-    # 3. Return Context
-    return UserContext(
-        id=str(profile.id),
-        client_id=profile.client_id,
-        role=profile.role,
-        username=profile.username,
-        display_name=profile.display_name,
-        token=token
-    )
 
 def get_secure_session(current_user: UserContext = Depends(get_current_user)):
     """
