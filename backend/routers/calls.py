@@ -18,7 +18,11 @@ import asyncio
 from services.supabase_service import supabase, create_signed_url, create_scoped_client
 
 
+
+import logging
+
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     """Ensure datetime is timezone-aware UTC. If naive, assume UTC."""
@@ -114,7 +118,7 @@ async def listCalls(
     bs = time.time()
     calls = await run_in_threadpool(session.exec, stmt)
     calls = calls.all()
-    print(f"[listCalls] DB Query took: {time.time() - bs:.4f}s. Found {len(calls)} calls.")
+    logger.info(f"[listCalls] DB Query took: {time.time() - bs:.4f}s. Found {len(calls)} calls.")
     
     # Build response list with explicit fields
     response = []
@@ -393,17 +397,15 @@ async def force_transfer_call(
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(call.control_url, json=payload)
     except Exception as e:
-        print("[force-transfer] Error calling control_url:", e)
+        logger.error(f"[force-transfer] Error calling control_url: {e}")
         raise HTTPException(
             status_code=502,
             detail=f"Error calling control_url: {e}",
         )
 
     if resp.status_code >= 400:
-        print(
-            "[force-transfer] vprod control_url responded with error:",
-            resp.status_code,
-            resp.text,
+        logger.error(
+            f"[force-transfer] vprod control_url responded with error: {resp.status_code} {resp.text}"
         )
         raise HTTPException(
             status_code=520, # using 520 for upstream error
@@ -426,7 +428,7 @@ async def force_transfer_call(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[force-transfer] DB COMMIT ERROR: {e}")
+        logger.error(f"[force-transfer] DB COMMIT ERROR: {e}")
         # We don't raise here if we want to return success for the transfer itself, 
         # but usually we should warn. For now let's just log it.
 

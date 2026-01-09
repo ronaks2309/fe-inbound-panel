@@ -53,7 +53,11 @@ Stack: FastAPI, SQLModel/SQLite, httpx, WebSockets. CORS is open for all origins
 
 ### Architecture
 - **Routers**: Modular route handlers in `routers/` (webhooks, calls, debug, websockets)
-- **Services**: Business logic in `services/call_service.py` (webhook processing, call updates)
+- **`services/`** | Business logic layer:
+  - `call_service.py` | Core logic for upserting calls, processing transcripts, handling end-of-call reports.
+  - `websocket_manager.py` | Singleton for broadcasting messages to connected dashboard clients.
+  - `supabase_service.py` | Integration with Supabase Storage for secure recording uploads.
+  - `create_user.py` | Utility script for manual user creation.
 - **Database**: Models in `database/models.py`, connection in `database/connection.py`
 - **Response Models**: Pydantic models in `routers/calls.py` for explicit API contracts
 

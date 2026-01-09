@@ -576,6 +576,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     try {
       setExporting(true);
       // Fetch fresh data including heavy fields
+      console.log("[CallDashboard] Starting CSV export...");
       const heavyCalls = await fetchCalls(true);
 
       // Apply Client-Side Tab Filters to the heavy data
@@ -710,6 +711,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     }
 
     const data = await res.json();
+    console.log(`[CallDashboard] Fetched ${data.length} calls`);
 
     return data.map((c: any) => ({
       id: String(c.id),

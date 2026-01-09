@@ -86,6 +86,8 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
+                    // Debug log for incoming messages
+                    console.debug("[GlobalContext] WS Message:", msg.type, msg.callId);
 
                     // 1. Notify Subscribers (LiveMonitorPage)
                     listenersRef.current.forEach(listener => listener(msg));
@@ -142,6 +144,7 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 if (active) {
                     // Only reconnect if we still have a session? 
                     // For now, simple retry if active
+                    console.log("[GlobalContext] WS Closed. Reconnecting in 3s...");
                     reconnectTimeoutRef.current = setTimeout(() => connectWs(token), 3000);
                 }
             };
