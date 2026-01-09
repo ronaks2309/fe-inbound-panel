@@ -126,10 +126,18 @@ export const LiveMonitorPage: React.FC = () => {
         }
     };
 
+    // Track subscriptions to prevent duplicates
+    const subscribedCallIdsRef = useRef<Set<string>>(new Set());
+
     useEffect(() => {
+        if (!userInfo?.id) return;
+
+        // Initial fetch
         fetchActiveCalls();
 
-        // WebSocket Setup
+        // Clear subscriptions ref on mount/remount
+        subscribedCallIdsRef.current.clear();
+
         const connectWs = async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return;
@@ -166,10 +174,13 @@ export const LiveMonitorPage: React.FC = () => {
                             if (isCallActive) {
                                 if (existsIndex === -1) {
                                     // NEW active call -> Subscribe!
-                                    console.log(`[WS DEBUG] New Active Call ${updatedCall.id}. StartedAt: ${updatedCall.started_at}`);
+                                    // console.log(`[WS DEBUG] New Active Call ${updatedCall.id}. StartedAt: ${updatedCall.started_at}`);
                                     if (ws.readyState === WebSocket.OPEN) {
-                                        console.log("Subscribing to new call:", updatedCall.id);
-                                        ws.send(JSON.stringify({ type: 'subscribe', callId: updatedCall.id }));
+                                        if (!subscribedCallIdsRef.current.has(updatedCall.id)) {
+                                            console.log("Subscribing to new call:", updatedCall.id);
+                                            ws.send(JSON.stringify({ type: 'subscribe', callId: updatedCall.id }));
+                                            subscribedCallIdsRef.current.add(updatedCall.id);
+                                        }
                                     }
                                     return [updatedCall, ...prev];
                                 } else {
@@ -228,10 +239,14 @@ export const LiveMonitorPage: React.FC = () => {
         connectWs();
 
         return () => {
-            wsRef.current?.close();
+            if (wsRef.current) {
+                // Prevent onclose from firing and scheduling a retry
+                wsRef.current.onclose = null;
+                wsRef.current.close();
+            }
             if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
         };
-    }, []); // Run once on mount
+    }, [userInfo]); // Re-run when user info is available
 
     // Separate effect to subscribe to initial calls once WS is open
     useEffect(() => {
