@@ -49,7 +49,7 @@
 
 ## Core Routes & WebSocket Protocol
 - **REST**:
-  - `POST /webhooks/vprod/{client_id}`: VAPI Event Ingest.
+  - `POST /webhooks/vprod/{client_id}`: VPROD Event Ingest.
   - `GET /api/{client_id}/calls`: List calls (Filtered by RLS).
   - `POST /api/{client_id}/calls/{call_id}/force-transfer`: Supervisor Take Owner.
 - **WebSockets**:

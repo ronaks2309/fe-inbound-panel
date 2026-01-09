@@ -22,10 +22,10 @@ Authorization: Bearer <your_access_token>
 
 ---
 
-## 2. Webhooks (VAPI Ingestion)
+## 2. Webhooks (vprod Ingestion)
 
 ### `POST /webhooks/vprod/{client_id}`
-Dispatcher for all VAPI.ai server events. This endpoint is **protected** and requires a secret token.
+Dispatcher for all vprod.ai server events. This endpoint is **protected** and requires a secret token.
 
 **Headers:**
 - `Content-Type`: `application/json`
@@ -41,10 +41,10 @@ Sent when call state changes (e.g., `ringing` -> `in-progress` -> `ended`).
     "type": "status-update",
     "status": "in-progress",
     "call": {
-      "id": "vapi-call-uuid-123",
+      "id": "vprod-call-uuid-123",
       "customer": { "number": "+15550001234" },
-      "listenUrl": "wss://vapi.ai/listen/...",
-      "controlUrl": "https://vapi.ai/control/..."
+      "listenUrl": "wss://vprod.ai/listen/...",
+      "controlUrl": "https://vprod.ai/control/..."
     },
     "timestamp": "2024-01-01T12:00:00Z"
   }
@@ -61,7 +61,7 @@ Sent incrementally as the AI or user speaks.
     "type": "transcript",
     "transcript": "Hello, how can I help you today?",
     "transcriptType": "partial", 
-    "call": { "id": "vapi-call-uuid-123" }
+    "call": { "id": "vprod-call-uuid-123" }
   }
 }
 ```
@@ -74,10 +74,10 @@ Sent after the call finishes processing.
 {
   "message": {
     "type": "end-of-call-report",
-    "call": { "id": "vapi-call-uuid-123" },
+    "call": { "id": "vprod-call-uuid-123" },
     "artifact": {
       "transcript": "Full final transcript...",
-      "recordingUrl": "https://vapi.ai/recordings/file.wav"
+      "recordingUrl": "https://vprod.ai/recordings/file.wav"
     },
     "analysis": {
       "summary": "User asked about billing.",
@@ -111,7 +111,7 @@ curl -X GET "http://localhost:8000/api/demo-client/calls?status=in-progress" \
 ```json
 [
   {
-    "id": "vapi-call-uuid-123",
+    "id": "vprod-call-uuid-123",
     "client_id": "demo-client",
     "phone_number": "+15550001234",
     "status": "in-progress",
@@ -131,14 +131,14 @@ Retrieve full details for a single call, including the live transcript array and
 
 **Example Request:**
 ```bash
-curl -X GET "http://localhost:8000/api/calls/vapi-call-uuid-123" \
+curl -X GET "http://localhost:8000/api/calls/vprod-call-uuid-123" \
      -H "Authorization: Bearer <your_jwt>"
 ```
 
 **Response (200 OK):**
 ```json
 {
-  "id": "vapi-call-uuid-123",
+  "id": "vprod-call-uuid-123",
   "client_id": "demo-client",
   "status": "in-progress",
   "live_transcript": [
@@ -154,11 +154,11 @@ curl -X GET "http://localhost:8000/api/calls/vapi-call-uuid-123" \
 ### Force Transfer (Take Over)
 **`POST /api/{client_id}/calls/{call_id}/force-transfer`**
 
-Triggers a transfer event to the VAPI `controlUrl`. Requires **Admin** role or Call Ownership.
+Triggers a transfer event to the vprod `controlUrl`. Requires **Admin** role or Call Ownership.
 
 **Example Request:**
 ```bash
-curl -X POST "http://localhost:8000/api/demo-client/calls/vapi-uuid-123/force-transfer" \
+curl -X POST "http://localhost:8000/api/demo-client/calls/vprod-uuid-123/force-transfer" \
      -H "Authorization: Bearer <your_jwt>" \
      -H "Content-Type: application/json" \
      -d '{
@@ -171,7 +171,7 @@ curl -X POST "http://localhost:8000/api/demo-client/calls/vapi-uuid-123/force-tr
 ```json
 {
   "ok": true,
-  "call_id": "vapi-uuid-123",
+  "call_id": "vprod-uuid-123",
   "forwarded_to": "+15559998888"
 }
 ```
@@ -183,7 +183,7 @@ Generates a secure, time-limited Signed URL for the recording file stored in Sup
 
 **Example Request:**
 ```bash
-curl -X GET "http://localhost:8000/api/calls/vapi-uuid-123/recording" \
+curl -X GET "http://localhost:8000/api/calls/vprod-uuid-123/recording" \
      -H "Authorization: Bearer <your_jwt>"
 ```
 
@@ -201,7 +201,7 @@ Updates editable fields like notes or feedback ratings.
 
 **Example Request:**
 ```bash
-curl -X PATCH "http://localhost:8000/api/calls/vapi-uuid-123" \
+curl -X PATCH "http://localhost:8000/api/calls/vprod-uuid-123" \
      -H "Authorization: Bearer <your_jwt>" \
      -H "Content-Type: application/json" \
      -d '{ "notes": "Customer was frustrated.", "feedback_rating": 2 }'
@@ -227,7 +227,7 @@ curl -X PATCH "http://localhost:8000/api/calls/vapi-uuid-123" \
 {
   "type": "transcript-update",
   "clientId": "demo-client",
-  "callId": "vapi-uuid-123",
+  "callId": "vprod-uuid-123",
   "append": " I would like to order...",
   "fullTranscript": "Hello... I would like to order..." 
 }
@@ -237,9 +237,9 @@ curl -X PATCH "http://localhost:8000/api/calls/vapi-uuid-123" \
 **URL**: `ws://localhost:8000/ws/listen/{call_id}?token=<JWT>`
 
 **Protocol:**
--   **Binary Stream**: The server proxies binary messages from VAPI's `listenUrl`.
+-   **Binary Stream**: The server proxies binary messages from vprod's `listenUrl`.
 -   **Format**: Raw **PCM 16-bit Little Endian**.
--   **Sample Rate**: Typically 24kHz or 32kHz (depends on VAPI configuration).
+-   **Sample Rate**: Typically 24kHz or 32kHz (depends on vprod configuration).
 -   **Client Side**: Use Web Audio API `AudioContext` to decode and play.
 
 ---

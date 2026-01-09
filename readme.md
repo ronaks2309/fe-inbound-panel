@@ -1,6 +1,6 @@
 # CallMark AI Inbound Call Dashboard
 
-**Real-time monitoring for AI voice agents powered by [VAPI.ai](https://vapi.ai).**
+**Real-time monitoring for AI voice agents powered by [vprod.ai](https://vprod.ai).**
 
 This application provides a comprehensive dashboard for tracking active and historical calls. It uses specialized WebSockets for real-time state synchronization and audio streaming, and leverages Supabase for secure authentication and data persistence.
 
@@ -16,7 +16,7 @@ This application provides a comprehensive dashboard for tracking active and hist
 ### `backend/` (FastAPI + SQLModel)
 - **`app.py`**: Main application entry point. Configures middleware (CORS, HSTS).
 - **`routers/`**:
-    - `webhooks.py`: Ingests VAPI events (status-update, transcript, end-of-call).
+    - `webhooks.py`: Ingests vprod events (status-update, transcript, end-of-call).
     - `calls.py`: REST endpoints for listing/retrieving calls.
     - `websockets.py`: Handlers for dashboard updates (`/ws/dashboard`) and audio streaming (`/ws/listen`).
 - **`services/`**:
@@ -133,7 +133,7 @@ Links Auth Users to Clients.
 The core record for voice sessions.
 | Column | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `VARCHAR(PK)` | VAPI Call ID |
+| `id` | `VARCHAR(PK)` | vprod Call ID |
 | `client_id` | `VARCHAR(FK)` | Tenant Reference |
 | `phone_number` | `VARCHAR` | Caller's Number |
 | `status` | `VARCHAR` | `in-progress`, `ended`, `ringing`, `queued` |
@@ -142,7 +142,7 @@ The core record for voice sessions.
 | `duration` | `INTEGER` | Duration in seconds |
 | `user_id` | `VARCHAR` | Assigned Agent ID |
 | `username` | `VARCHAR` | Assigned Agent Name |
-| `cost` | `FLOAT` | VAPI Cost |
+| `cost` | `FLOAT` | vprod Cost |
 | `listen_url` | `VARCHAR` | WebSocket URL for audio |
 | `control_url` | `VARCHAR` | HTTP URL for call controls |
 | **`live_transcript`** | `TEXT` | JSON Array (Incremental updates) |
@@ -215,7 +215,7 @@ The `ActiveCallContext` is the heartbeat of the frontend's real-time capabilitie
 A dedicated WebSocket endpoint handles low-latency audio for "Listen In".
 - **Path**: `/ws/listen/{call_id}?token={jwt}`
 - **Flow**:
-  1. VAPI sends audio RTP/WS to Backend.
+  1. vprod sends audio RTP/WS to Backend.
   2. Backend buffers and forwards linear 16-bit PCM chunks to connected Frontend consumers.
   3. Frontend `LiveAudioStreamer` component uses **Web Audio API** to schedule and play chunks without jitter.
 
@@ -240,14 +240,14 @@ flowchart TD
     BE -->|SQLModel + RLS| DB[(Postgres DB)]
     BE -->|Admin API| Storage[Supabase Storage]
     
-    VAPI[VAPI.ai] -->|Webhooks| BE
-    VAPI -->|Audio Stream| BE
+    vprod[vprod.ai] -->|Webhooks| BE
+    vprod -->|Audio Stream| BE
 ```
 
 ### 2. New Call Flow (Incoming)
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant DB as Postgres
     participant WS as WebSocket Manager
@@ -264,7 +264,7 @@ sequenceDiagram
 ### 3. Status Update Flow
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant WS as WebSocket Manager
     participant FE as Frontend
@@ -279,7 +279,7 @@ sequenceDiagram
 ### 4. Live Transcript Update Flow
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant WS as WebSocket Manager
     participant FE as Frontend
@@ -294,7 +294,7 @@ sequenceDiagram
 ### 5. End of Call Report Flow
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant S as Supabase Storage
     participant DB as Postgres
@@ -316,7 +316,7 @@ sequenceDiagram
     participant User
     participant FE as Frontend
     participant BE as Backend
-    participant V as VAPI
+    participant V as vprod
 
     User->>FE: Click "Take Over"
     FE->>BE: POST /api/{client_id}/calls/{id}/force-transfer (Auth+JWT)

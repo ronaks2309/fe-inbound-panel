@@ -1,7 +1,7 @@
 # Architecture Diagrams (Mermaid)
 
 ## 1. High-Level System Components
-Overview of how Frontend, Backend, Database, and VAPI interact.
+Overview of how Frontend, Backend, Database, and vprod interact.
 
 ```mermaid
 flowchart TD
@@ -19,8 +19,8 @@ flowchart TD
     BE -->|SQLModel + RLS| DB[(Postgres DB)]
     BE -->|Admin API| Storage[Supabase Storage]
     
-    VAPI[VAPI.ai] -->|Webhooks| BE
-    VAPI -->|Audio Stream| BE
+    vprod[vprod.ai] -->|Webhooks| BE
+    vprod -->|Audio Stream| BE
 ```
 
 ## 2. Authentication & RLS Flow
@@ -66,11 +66,11 @@ sequenceDiagram
 ```
 
 ## 4. New Call Lifecycle (Incoming)
-A new call starts ringing at VAPI.
+A new call starts ringing at vprod.
 
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant DB as Postgres
     participant WM as BroadcastManager
@@ -90,7 +90,7 @@ Call is answered and becomes active.
 
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant DB as Postgres
     participant WM as BroadcastManager
@@ -108,7 +108,7 @@ Real-time text updates during the call.
 
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant DB as Postgres
     participant WM as BroadcastManager
@@ -126,7 +126,7 @@ Low-latency audio monitoring via Web Audio API.
 
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant FE as Frontend (LiveAudioStreamer)
 
@@ -142,7 +142,7 @@ Finalizing the call and securing artifacts.
 
 ```mermaid
 sequenceDiagram
-    participant V as VAPI
+    participant V as vprod
     participant BE as Backend
     participant S as Supabase Storage
     participant DB as Postgres
@@ -163,7 +163,7 @@ Manually taking over a call.
 sequenceDiagram
     participant Supervisor (FE)
     participant BE as Backend
-    participant V as VAPI
+    participant V as vprod
 
     Supervisor->>BE: POST /api/calls/{id}/force-transfer
     BE->>BE: Verify Admin/Supervisor Permissions
