@@ -14,36 +14,7 @@ import logging
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
 
-@router.websocket("/ws/fake-audio")
-async def fake_audio_websocket(ws: WebSocket):
-    """
-    Simple local WS that sends fake binary 'audio' chunks so the frontend
-    ListenModal can be tested without a real listenUrl.
-    """
-    await ws.accept()
-    logger.info("[fake-audio] client connected")
 
-    try:
-      # send a small hello text frame
-      await ws.send_text('{"type": "hello", "source": "fake-audio"}')
-
-      # send random binary chunks for ~10 seconds or until client disconnects
-      # (32kHz mono 16-bit would be ~1280 bytes for 20ms; but content doesn’t matter here)
-      for i in range(500):  # 500 * 20ms ≈ 10 seconds
-          # 1280 bytes "audio" data
-          chunk = os.urandom(1280)
-          await ws.send_bytes(chunk)
-          await asyncio.sleep(0.02)
-
-      logger.info("[fake-audio] finished sending chunks")
-    except Exception as e:
-      logger.error(f"[fake-audio] error: {e}")
-    finally:
-      try:
-          await ws.close()
-      except Exception:
-          pass
-      logger.info("[fake-audio] client disconnected")
 
 
 @router.websocket("/ws/listen/{call_id}")

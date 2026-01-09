@@ -19,7 +19,7 @@ from database.connection import init_db, engine
 from database.models import Client
 
 # Import routers
-from routers import webhooks, calls, debug, websockets
+from routers import webhooks, calls, websockets
 
 
 @asynccontextmanager
@@ -109,5 +109,4 @@ def health():
 # --- Register Routers --- #
 app.include_router(webhooks.router)
 app.include_router(calls.router)
-app.include_router(debug.router)
 app.include_router(websockets.router)

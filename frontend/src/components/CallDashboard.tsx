@@ -965,11 +965,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
               {!loading && !error && calls.length === 0 && (
                 <p className="text-sm text-slate-500">
-                  No calls yet. Use the debug endpoint{" "}
-                  <code className="bg-slate-100 px-1 py-0.5 rounded">
-                    POST /api/debug/create-test-call/demo-client
-                  </code>{" "}
-                  or send real webhooks to populate this table.
+                  No calls yet. Send real webhooks to populate this table.
                 </p>
               )}
 
