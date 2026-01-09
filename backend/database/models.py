@@ -50,6 +50,13 @@ class Call(SQLModel, table=True):
     # NEW: Sentiment and Disposition
     sentiment: Optional[str] = None
     disposition: Optional[str] = None
+    
+    # NEW: Incremental Sentiment State (List of dicts)
+    # Stores the history of sentiment updates per turn
+    sentiment_state: Optional[dict] = Field(
+        default=[],
+        sa_column=Column(JSON)
+    )
 
     # NEW: Notes and Feedback
     notes: Optional[str] = None
