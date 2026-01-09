@@ -25,10 +25,11 @@ Authorization: Bearer <your_access_token>
 ## 2. Webhooks (VAPI Ingestion)
 
 ### `POST /webhooks/vprod/{client_id}`
-Dispatcher for all VAPI.ai server events. This endpoint is generally **publicly accessible** (or protected by a Service Key in production) to allow VAPI servers to push data.
+Dispatcher for all VAPI.ai server events. This endpoint is **protected** and requires a secret token.
 
 **Headers:**
 - `Content-Type`: `application/json`
+- `Authorization`: `Bearer <WEBHOOK_SECRET>`
 
 #### Scenario A: Status Update
 Sent when call state changes (e.g., `ringing` -> `in-progress` -> `ended`).

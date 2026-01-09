@@ -60,3 +60,28 @@ def get_secure_session(current_user: UserContext = Depends(get_current_user)):
         
         # 2. Hand over the session
         yield session
+
+def verify_webhook_token(
+    creds: HTTPAuthorizationCredentials = Depends(security)
+) -> str:
+    """
+    Simple Bearer token check for Webhooks.
+    """
+    token = creds.credentials
+    secret = os.getenv("WEBHOOK_SECRET")
+    
+    if not secret:
+        # If no secret is configured, lock it down by default or log warning?
+        # For security, let's deny access if not configured.
+        print("Warning: WEBHOOK_SECRET not configured in .env")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
+            detail="Webhook auth not configured"
+        )
+
+    if token != secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook token"
+        )
+    return token

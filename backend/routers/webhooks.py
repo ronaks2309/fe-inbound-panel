@@ -4,6 +4,7 @@ from typing import Optional
 from sqlmodel import Session
 from database.connection import get_session
 from services.call_service import CallService
+from dependencies.auth import verify_webhook_token
 
 import logging
 
@@ -12,7 +13,7 @@ logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
 
-@router.post("/webhooks/vprod/{client_id}")
+@router.post("/webhooks/vprod/{client_id}", dependencies=[Depends(verify_webhook_token)])
 async def vprod_server_webhook(
     client_id: str,
     payload: dict = Body(...),
