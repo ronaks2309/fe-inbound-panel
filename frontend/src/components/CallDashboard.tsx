@@ -17,7 +17,7 @@
  * - Force transfer to licensed agent
  */
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -152,63 +152,13 @@ const columnHelper = createColumnHelper<Call>();
 
 // DURATION TIMER COMPONENT
 const DurationTimer: React.FC<{ call: Call }> = ({ call }) => {
-  const [elapsed, setElapsed] = useState<number | null>(null);
+  // Static display for ended calls
+  const duration = call.duration;
+  if (duration === undefined || duration === null) return <span>-</span>;
 
-  useEffect(() => {
-    // If we have a static duration (ended call), just use it
-    if (call.duration !== undefined && call.duration !== null) {
-      setElapsed(call.duration);
-      return;
-    }
-
-    // If call is active and we have started_at, calc live
-    const status = (call.status || "").toLowerCase();
-    const isActive = ["in-progress", "ringing", "queued"].includes(status);
-
-    if (isActive) {
-      // Use started_at if available, otherwise fallback to created_at
-      const startTimeStr = call.started_at || call.created_at;
-      if (startTimeStr) {
-        const start = new Date(startTimeStr).getTime();
-
-        const interval = setInterval(() => {
-          const now = Date.now();
-          const diffSeconds = Math.floor((now - start) / 1000);
-          setElapsed(diffSeconds > 0 ? diffSeconds : 0);
-        }, 1000);
-
-        // Initial set
-        const now = Date.now();
-        const diffSeconds = Math.floor((now - start) / 1000);
-        setElapsed(diffSeconds > 0 ? diffSeconds : 0);
-
-        return () => clearInterval(interval);
-      }
-    }
-
-    // Fallback if ended but no duration yet (e.g. just ended before report)
-    if (call.ended_at) {
-      // Use started_at or created_at
-      const startTimeStr = call.started_at || call.created_at;
-      if (startTimeStr) {
-        const start = new Date(startTimeStr).getTime();
-        const end = new Date(call.ended_at).getTime();
-        const diff = Math.floor((end - start) / 1000);
-        setElapsed(diff > 0 ? diff : 0);
-      }
-    } else {
-      setElapsed(null);
-    }
-
-  }, [call.status, call.started_at, call.created_at, call.ended_at, call.duration]);
-
-  if (elapsed === null) return <span>-</span>;
-
-  // Format HH:MM:SS
-  const h = Math.floor(elapsed / 3600);
-  const m = Math.floor((elapsed % 3600) / 60);
-  const s = elapsed % 60;
-
+  const h = Math.floor(duration / 3600);
+  const m = Math.floor((duration % 3600) / 60);
+  const s = duration % 60;
   const fmt = (n: number) => n.toString().padStart(2, "0");
 
   if (h > 0) {
@@ -244,12 +194,11 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
   // FILTER LOGIC
   // REF: useRef stores a mutable value that persists across renders WITHOUT causing re-renders
-  const wsRef = useRef<WebSocket | null>(null);
+  // const wsRef = useRef<WebSocket | null>(null); // Removed WS
 
   const { filteredCalls, counts } = useMemo(() => {
     const counts = {
       all: 0,
-      live: 0,
       transferred: 0,
       followup: 0,
       callback: 0
@@ -274,10 +223,8 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     // 2. Compute Counts on Filtered List
     filtered.forEach(c => {
       counts.all++;
-      const s = (c.status || "").toLowerCase();
       const d = (c.disposition || "").toLowerCase();
 
-      if (["in-progress", "ringing", "queued"].includes(s)) counts.live++;
       if (d === "transferred") counts.transferred++;
       if (d === "follow_up_needed") counts.followup++;
       if (d === "callback_requested") counts.callback++;
@@ -285,11 +232,9 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
 
     // 3. Apply Tab Filter
     filtered = filtered.filter(c => {
-      const s = (c.status || "").toLowerCase();
       const d = (c.disposition || "").toLowerCase();
 
       if (activeTab === "all") return true;
-      if (activeTab === "live") return ["in-progress", "ringing", "queued"].includes(s);
       if (activeTab === "transferred") return d === "transferred";
       if (activeTab === "followup") return d === "follow_up_needed";
       if (activeTab === "callback") return d === "callback_requested";
@@ -724,7 +669,10 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
     const tenantId = metadata.tenant_id || "demo-client";
     const role = metadata.role || "admin";
 
-    let url = `${backendUrl}/api/${tenantId}/calls`;
+    // Statuses: completed, ended, voicemail, missed, failed, incomplete
+    // I will trust 'completed,ended,voicemail,missed,failed,incomplete_call'
+
+    let url = `${backendUrl}/api/${tenantId}/calls?status=completed,ended,voicemail,missed,failed,incomplete_call`;
     const params = new URLSearchParams();
     if (role === 'user') {
       params.append('user_id', userInfo.id);
@@ -840,88 +788,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   //   });
   // }, []);
 
-  // HELPER FUNCTION: Upsert (update or insert) a call from WebSocket payload
-  // This merges new data from the server with existing call data in state
-  function handleCallUpsert(payload: any) {
-    const c = payload.call;
-    if (!c || !c.id) return;
-
-    const newCall: Call = {
-      id: String(c.id),
-      client_id: payload.clientId,
-      phone_number: c.phoneNumber ?? c.phone_number ?? null,
-      status: c.status ?? null,
-      started_at: c.startedAt ?? c.started_at ?? null,
-      created_at: c.created_at ?? c.createdAt, // Allow undefined here, handle fallback in merge
-      ended_at: c.endedAt ?? c.ended_at ?? null,
-      has_listen_url: c.hasListenUrl ?? Boolean(c.listenUrl) ?? false,
-      user_id: c.userId ?? c.user_id ?? undefined,
-      username: c.username ?? undefined,
-      duration: c.duration ?? undefined,
-      hasTranscript:
-        c.hasTranscript ?? undefined,      // backend already sends flags
-      hasLiveTranscript:
-        c.hasLiveTranscript ?? undefined,
-      hasRecording:
-        c.hasRecording ?? undefined,
-      recording_url: c.recordingUrl ?? c.recording_url ?? undefined,
-      final_transcript:
-        c.finalTranscript ?? c.final_transcript ?? undefined,
-      live_transcript:
-        c.liveTranscript ?? c.live_transcript ?? undefined,
-      sentiment: c.sentiment ?? undefined,
-      disposition: c.disposition ?? undefined,
-      summary: c.summary ?? undefined,
-      notes: c.notes ?? undefined,
-      feedback_rating: c.feedback_rating ?? undefined,
-      feedback_text: c.feedback_text ?? undefined,
-    };
-
-    // STATE UPDATE WITH CALLBACK: Use callback pattern when new state depends on old state
-    // prev => prevents race conditions by always working with the latest state
-    setCalls((prev) => {
-      const idx = prev.findIndex((x) => String(x.id) === newCall.id);
-      if (idx === -1) {
-        // Call doesn't exist - add it to the beginning of the array
-        return [newCall, ...prev];
-      } else {
-        // Call exists - merge new data with existing data
-        const old = prev[idx];
-        const merged: Call = {
-          ...old,
-          ...newCall,
-          // Merge flags
-          has_listen_url: newCall.has_listen_url ?? old.has_listen_url ?? false,
-          username: newCall.username ?? old.username ?? null,
-          duration: newCall.duration ?? old.duration ?? null,
-          user_id: newCall.user_id ?? old.user_id ?? null,
-          // Preserve started_at if missing in update (prevents timer reset on partial updates)
-          started_at: newCall.started_at ?? old.started_at ?? null,
-          // If newCall.created_at is defined (from backend), use it. 
-          // Else keep old created_at. 
-          // Fallback to new date ONLY if both are missing.
-          created_at: newCall.created_at ?? old.created_at ?? new Date().toISOString(),
-          hasTranscript:
-            newCall.hasTranscript ?? old.hasTranscript ?? false,
-          hasLiveTranscript:
-            newCall.hasLiveTranscript ?? old.hasLiveTranscript ?? false,
-          hasRecording:
-            newCall.hasRecording ?? old.hasRecording ?? false,
-          recording_url:
-            newCall.recording_url ?? old.recording_url ?? null,
-          final_transcript:
-            newCall.final_transcript ?? old.final_transcript ?? null,
-          live_transcript:
-            newCall.live_transcript ?? old.live_transcript ?? null,
-        };
-
-        const copy = [...prev];
-        copy[idx] = merged;
-        return copy;
-      }
-    });
-
-  }
+  // handleCallUpsert Removed
 
   // Force transfer logic removed as Actions column is removed
   // ...
@@ -930,108 +797,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
   // EFFECT 2: WebSocket connection for real-time dashboard updates
   // This effect runs ONCE on mount and stays open until component unmounts
   // EFFECT 2: WebSocket connection for real-time dashboard updates
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let active = true;
-
-    const connectWs = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!active) return;
-
-      const token = session?.access_token;
-      if (!token) {
-        console.warn("No auth token for WebSocket");
-        return;
-      }
-
-      let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
-      wsUrl += `?token=${token}`;
-
-      //console.log("Connecting WebSocket to:", wsUrl);
-
-      // Create WebSocket connection
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log("Dashboard WS open");
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data as string);
-
-          if (msg.type === "call-upsert") {
-            console.log("Dashboard WS call-upsert:", msg);
-            handleCallUpsert(msg);
-          } else if (msg.type === "transcript-update") {
-            console.log("Dashboard WS transcript-update:", msg);
-            const callId: string = msg.callId;
-            const fullTranscript: string | undefined = msg.fullTranscript;
-            setCalls((prev) =>
-              prev.map((c) =>
-                c.id === callId
-                  ? { ...c, hasLiveTranscript: true, live_transcript: fullTranscript ?? c.live_transcript ?? null }
-                  : c
-              )
-            );
-          } else {
-            console.log("Dashboard WS other message:", msg);
-          }
-        } catch (err) {
-          console.warn("Failed to parse WS message as JSON", err);
-        }
-      };
-
-      ws.onerror = (event) => {
-        console.error("Dashboard WS error:", event);
-      };
-
-      ws.onclose = () => {
-        console.log("Dashboard WS closed");
-      };
-    };
-
-    connectWs();
-
-    // CLEANUP FUNCTION
-    return () => {
-      active = false;
-      if (ws) ws.close();
-    };
-
-
-  }, [userInfo?.id]); // Re-run when userInfo loads (so we attach user_id to WS)
-
-  // EFFECT 3: Subscribe/unsubscribe to specific call transcripts
-  // This runs whenever transcriptModalCallId OR selectedCallId CHANGES
-  // We unified the logic to support both the legacy modal and the new sidebar.
-  useEffect(() => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    // Use either the modal ID or the sidebar ID
-    const targetCallId = transcriptModalCallId || selectedCallId;
-
-    // When a call is selected/opened, subscribe to it
-    if (targetCallId) {
-      console.log(`[Dashboard] Subscribing to call ${targetCallId}`);
-      wsRef.current.send(JSON.stringify({
-        type: "subscribe",
-        callId: targetCallId
-      }));
-    }
-
-    // CLEANUP: Unsubscribe when ID changes or unmounts
-    return () => {
-      if (targetCallId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log(`[Dashboard] Unsubscribing from call ${targetCallId}`);
-        wsRef.current.send(JSON.stringify({
-          type: "unsubscribe",
-          callId: targetCallId
-        }));
-      }
-    };
-  }, [transcriptModalCallId, selectedCallId]); // Dependency: re-run whenever either changes
+  // EFFECT 2 & 3 Removed (Websockets)
 
 
 
@@ -1135,18 +901,7 @@ const CallDashboard: React.FC<{ userInfo?: any }> = ({ userInfo }) => {
                   </Badge>
                 </Button>
 
-                <Button
-                  variant={activeTab === "live" ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setActiveTab("live")}
-                  className={cn("h-7 px-2 text-xs gap-1.5 font-medium", activeTab === "live" && "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
-                >
-                  <Activity size={14} className={cn("text-slate-500", activeTab === "live" && "text-emerald-600")} />
-                  Live
-                  <Badge variant="secondary" className={cn("ml-1 px-1 py-0 min-w-[18px] h-4 text-[10px] justify-center bg-slate-200 text-slate-700", activeTab === 'live' && "bg-emerald-200 text-emerald-800")}>
-                    {counts.live}
-                  </Badge>
-                </Button>
+                {/* Live Tab Removed */}
 
                 <Button
                   variant={activeTab === "transferred" ? "secondary" : "ghost"}

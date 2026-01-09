@@ -108,9 +108,13 @@ async def listCalls(
     # We just need to query the table, and Postgres filters it for us.
     stmt = stmt.order_by(Call.created_at.desc())
     
+    
     # Run synchronous DB query in threadpool
+    import time
+    bs = time.time()
     calls = await run_in_threadpool(session.exec, stmt)
     calls = calls.all()
+    print(f"[listCalls] DB Query took: {time.time() - bs:.4f}s. Found {len(calls)} calls.")
     
     # Build response list with explicit fields
     response = []
