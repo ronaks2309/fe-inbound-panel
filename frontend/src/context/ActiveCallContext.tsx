@@ -5,18 +5,42 @@ import { toast } from 'sonner';
 // Define the shape of our context
 interface ActiveCallContextType {
     activeCallCount: number;
-    lastNewCallId: string | null;
+    sendMessage: (msg: any) => void;
+    subscribe: (callback: (msg: any) => void) => () => void;
+    isWsConnected: boolean;
 }
 
 const ActiveCallContext = createContext<ActiveCallContextType>({
     activeCallCount: 0,
-    lastNewCallId: null,
+    sendMessage: () => { },
+    subscribe: () => () => { },
+    isWsConnected: false,
 });
 
 export const useActiveCalls = () => useContext(ActiveCallContext);
 
 export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [activeCallCount, setActiveCallCount] = useState(0);
+    const [isWsConnected, setIsWsConnected] = useState(false);
+
+    // Event Listeners for consumers (like LiveMonitorPage)
+    const listenersRef = useRef<Set<(msg: any) => void>>(new Set());
+
+    const subscribe = (callback: (msg: any) => void) => {
+        listenersRef.current.add(callback);
+        return () => {
+            listenersRef.current.delete(callback);
+        };
+    };
+
+    const sendMessage = (msg: any) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(msg));
+        } else {
+            console.warn("[GlobalContext] Only can send message when WS is open");
+        }
+    };
+
     // const [lastNewCallId, setLastNewCallId] = useState<string | null>(null); // Unused for now
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,17 +73,22 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             let wsUrl = backendUrl.replace(/^http/, "ws") + "/ws/dashboard";
             wsUrl += `?token=${token}`;
 
-            const ws = new WebSocket(wsUrl);
+            ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
             ws.onopen = () => {
                 console.log("[GlobalContext] WS Connected");
+                setIsWsConnected(true);
             };
 
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
 
+                    // 1. Notify Subscribers (LiveMonitorPage)
+                    listenersRef.current.forEach(listener => listener(msg));
+
+                    // 2. Handle Global Badge / Notifications (Internal Logic)
                     // We expect 'call-upsert' messages for active calls
                     // OR a full list if the backend supported it, but currently it sends upserts.
 
@@ -121,6 +150,7 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             };
 
             ws.onclose = () => {
+                setIsWsConnected(false);
                 if (active) {
                     // Only reconnect if we still have a session? 
                     // For now, simple retry if active
@@ -145,6 +175,7 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 }
                 setActiveCallCount(0);
                 knownCallIdsRef.current.clear();
+                setIsWsConnected(false);
             } else if (event === 'TOKEN_REFRESHED' && session?.access_token) {
                 // Ideally transparent, but if token changes we might want to reconnect?
                 // For now, let's assume WS stays valid until it dies.
@@ -197,7 +228,7 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     return (
-        <ActiveCallContext.Provider value={{ activeCallCount, lastNewCallId: null }}>
+        <ActiveCallContext.Provider value={{ activeCallCount, sendMessage, subscribe, isWsConnected }}>
             {children}
             {/* We could render the toast here or let components handle it */}
         </ActiveCallContext.Provider>
