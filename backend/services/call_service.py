@@ -256,6 +256,25 @@ class CallService:
                 last_msg = transcript_messages[-1]
                 last_role = last_msg.get("role")
                 
+                # --- SENTIMENT TRIGGER LOGIC ---
+                # If we are receiving an AI message (role="ai") and the previous message was USER
+                # it means the User's turn is complete. We can now analyze it.
+                if role == "ai" and last_role == "user":
+                     # Extract full user text for analysis
+                     user_text_to_analyze = last_msg.get("content", "")
+                     if user_text_to_analyze.strip():
+                         # Trigger async sentiment update (fire-and-forget)
+                         try:
+                             from services.sentiment_service import SentimentService
+                             import asyncio
+                             # We use asyncio.create_task to run this in background
+                             asyncio.create_task(
+                                 SentimentService.update_call_sentiment(call.id, user_text_to_analyze)
+                             )
+                         except Exception as e:
+                             # Failsafe: don't block transcript if import/trigger fails
+                             logger.error(f"[CallService] Failed to trigger sentiment: {e}")
+
                 if last_role == role:
                     # Append to same message
                     last_msg["content"] = last_msg["content"] + append_chunk

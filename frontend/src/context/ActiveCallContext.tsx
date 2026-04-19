@@ -86,8 +86,13 @@ export const ActiveCallProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    // Debug log for incoming messages
-                    console.debug("[GlobalContext] WS Message:", msg.type, msg.callId);
+
+                    // Enhanced Logging for User
+                    if (['transcript-update', 'sentiment-update', 'call-upsert'].includes(msg.type)) {
+                        console.log(`%c[WS] ${msg.type}`, 'color: #00bcd4; font-weight: bold;', msg);
+                    } else {
+                        console.debug("[GlobalContext] WS Message:", msg.type, msg.callId);
+                    }
 
                     // 1. Notify Subscribers (LiveMonitorPage)
                     listenersRef.current.forEach(listener => listener(msg));
